@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sudden Death Chess — One Bad Move. Game Over.</title>
+<meta name="description" content="Play chess where one blunder ends the game instantly. Real-time multiplayer, Elo rating, 10 seconds per move.">
+
+<!-- AdSense placeholder — replace with your real code once approved -->
+<!-- <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script> -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+
+<div id="flash"></div>
+<div id="feedback-text"></div>
+<div id="toast"></div>
+
+<!-- LOGIN -->
+<div id="s-login" class="screen active">
+  <div class="login-bg-grid"></div>
+  <div class="login-glow"></div>
+  <div class="login-card">
+    <div class="brand">SUDDEN<span class="red">DEATH</span><br>CHESS</div>
+    <div class="brand-sub">One bad move. Game over.</div>
+    <div id="lm-label" class="field-label-top">Sign In</div>
+    <div class="field">
+      <div class="field-label">Username</div>
+      <input class="inp" id="inp-user" type="text" placeholder="your_username" maxlength="20" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <div class="field-label">Password</div>
+      <input class="inp" id="inp-pass" type="password" placeholder="••••••••">
+    </div>
+    <div class="field" id="confirm-field" style="display:none">
+      <div class="field-label">Confirm Password</div>
+      <input class="inp" id="inp-confirm" type="password" placeholder="••••••••">
+    </div>
+    <div class="err-msg" id="err-msg"></div>
+    <button class="btn-red" id="btn-auth">PLAY NOW</button>
+    <div class="login-toggle">
+      <span id="toggle-text">No account?</span>
+      <a id="btn-toggle"> Create one →</a>
+    </div>
+  </div>
+</div>
+
+<!-- LOBBY -->
+<div id="s-lobby" class="screen">
+  <div class="nav">
+    <div class="nav-brand">SUDDEN<span class="red">DEATH</span></div>
+    <div class="nav-right">
+      <div class="nav-user" id="nav-user-btn">
+        <span class="nav-username" id="nav-uname">—</span>
+        <span class="nav-rating" id="nav-rating">1200</span>
+      </div>
+      <!-- AD SLOT: top nav banner -->
+      <div class="ad" id="ad-nav" style="width:160px;height:36px;">AD</div>
+    </div>
+  </div>
+
+  <div class="lobby-body">
+    <div class="lobby-main">
+      <div>
+        <div class="lobby-title">SUDDEN<span class="red">DEATH</span></div>
+        <div class="lobby-tagline">Walk on eggshells. Every move counts.</div>
+      </div>
+      <div class="rule-chips">
+        <div class="chip"><span class="ci">⚡</span><span>Blunder limit: <strong>−200cp</strong></span></div>
+        <div class="chip"><span class="ci">⏱</span><span><strong>10 seconds</strong> per move</span></div>
+        <div class="chip"><span class="ci">💀</span><span>One blunder = <strong>instant loss</strong></span></div>
+        <div class="chip"><span class="ci">📈</span><span>Live <strong>Elo rating</strong></span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <button class="find-btn" id="btn-find">FIND MATCH</button>
+        <div class="search-status" id="search-status"> </div>
+      </div>
+
+      <!-- AD SLOT: lobby leaderboard banner 728x90 -->
+      <div class="ad" id="ad-lobby" style="width:728px;max-width:95%;height:90px;">ADVERTISEMENT</div>
+    </div>
+
+    <div class="lobby-sidebar">
+      <div class="sb-section">
+        <div class="sb-title">Live Stats</div>
+        <div class="live-row"><span class="live-label">Online now</span><span class="live-val green" id="stat-online">—</span></div>
+        <div class="live-row"><span class="live-label">My games</span><span class="live-val" id="stat-mygames">0</span></div>
+        <div class="live-row"><span class="live-label">Win streak</span><span class="live-val" id="stat-streak">0</span></div>
+      </div>
+      <div class="sb-section" style="flex:1;overflow-y:auto">
+        <div class="sb-title">Top Players</div>
+        <div id="leaderboard">Loading...</div>
+      </div>
+      <div class="sb-section">
+        <!-- AD SLOT: sidebar -->
+        <div class="ad" style="width:100%;height:80px;">AD</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GAME -->
+<div id="s-game" class="screen">
+  <div class="game-nav">
+    <div class="game-nav-brand">S<span class="red">D</span>C</div>
+    <div class="game-status-pill" id="game-status">Connecting...</div>
+    <!-- AD SLOT: game top bar -->
+    <div class="ad" style="width:180px;height:36px;">AD</div>
+  </div>
+  <div class="game-body">
+    <div class="g-left">
+      <div class="gs">
+        <div class="g-label">Opponent</div>
+        <div class="pblock" id="block-opp">
+          <div class="pc" id="g-opp-color">⬛ Black</div>
+          <div class="pn" id="g-opp-name">—</div>
+          <div class="pr" id="g-opp-rating">—</div>
+        </div>
+      </div>
+      <div class="gs">
+        <div class="g-label">Time Remaining</div>
+        <div class="timer-big ok" id="timer-num">10</div>
+        <div class="timer-track"><div class="timer-fill" id="timer-fill" style="width:100%"></div></div>
+      </div>
+      <div class="gs" style="flex:1">
+        <div class="g-label">Evaluation</div>
+        <div class="eval-outer">
+          <div class="eval-white" id="eval-fill" style="height:50%"></div>
+          <div class="eval-mid"></div>
+        </div>
+        <div class="eval-num" id="eval-num">0.0</div>
+        <div style="margin-top:14px">
+          <div class="g-label">Danger Meter</div>
+          <div class="bm-track"><div class="bm-fill" id="bm-fill"></div><div class="bm-line"></div></div>
+          <div class="bm-lbl"><span>Safe</span><span>Blunder</span></div>
+        </div>
+      </div>
+      <div class="gs">
+        <div class="g-label">You</div>
+        <div class="pblock at" id="block-you">
+          <div class="pc" id="g-you-color">⬜ White</div>
+          <div class="pn" id="g-you-name">—</div>
+          <div class="pr" id="g-you-rating">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="g-center">
+      <div class="board-wrap">
+        <div class="board" id="board"></div>
+        <div class="coord-files" id="coord-files"></div>
+        <div class="coord-ranks" id="coord-ranks"></div>
+      </div>
+    </div>
+
+    <div class="g-right">
+      <div class="move-log">
+        <div class="move-log-head">Move History</div>
+        <div class="move-log-body" id="move-log"></div>
+      </div>
+      <div class="cap-area">
+        <div class="g-label">Captured</div>
+        <div class="cap-row" id="cap-you"></div>
+        <div class="cap-row" id="cap-opp"></div>
+      </div>
+      <button class="resign-btn" id="btn-resign">Resign</button>
+      <!-- AD SLOTS: right panel -->
+      <div class="ad" style="width:160px;height:150px;margin:10px auto;">AD</div>
+      <div class="ad" style="width:160px;height:80px;margin:0 auto 10px;">AD</div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULT MODAL -->
+<div class="modal-bg" id="result-modal">
+  <div class="modal">
+    <div class="modal-icon" id="m-icon">💀</div>
+    <div class="modal-title" id="m-title">DEFEATED</div>
+    <div class="modal-reason" id="m-reason"></div>
+    <div id="no-ads-unlock" class="no-ads-banner" style="display:none">
+      🎉 You hit 1600! <strong>Ads disabled forever.</strong> Welcome to the elite.
+    </div>
+    <div class="rating-row">
+      <span class="r-old" id="m-r-old">—</span>
+      <span class="r-arrow">→</span>
+      <span class="r-new" id="m-r-new">—</span>
+      <span class="r-delta" id="m-r-delta"></span>
+    </div>
+    <div class="mgs">
+      <div class="mgs-item"><div class="mgs-val" id="m-moves">0</div><div class="mgs-lbl">Moves</div></div>
+      <div class="mgs-item"><div class="mgs-val" id="m-acc">—</div><div class="mgs-lbl">Accuracy</div></div>
+      <div class="mgs-item"><div class="mgs-val" id="m-time">—</div><div class="mgs-lbl">Avg Time</div></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-red" id="btn-rematch">REMATCH</button>
+      <button class="btn-ghost" id="btn-to-lobby">LOBBY</button>
+    </div>
+  </div>
+</div>
+
+<!-- PROFILE -->
+<div id="s-profile" class="screen">
+  <div class="nav">
+    <div class="nav-brand">SUDDEN<span class="red">DEATH</span></div>
+    <div class="nav-right"><div class="ad" style="width:160px;height:36px;">AD</div></div>
+  </div>
+  <div class="prof-body">
+    <button class="back-btn" id="btn-back-lobby">← Back to Lobby</button>
+    <div class="prof-header">
+      <div class="prof-avatar" id="prof-avatar">?</div>
+      <div>
+        <div class="prof-name" id="prof-name">—</div>
+        <div class="prof-rating-big" id="prof-rating">1200</div>
+        <div class="prof-rating-lbl">Elo Rating · Peak: <span id="prof-peak">1200</span></div>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="sg-cell"><div class="sg-val" id="ps-played">0</div><div class="sg-lbl">Played</div></div>
+      <div class="sg-cell"><div class="sg-val green" id="ps-wins">0</div><div class="sg-lbl">Wins</div></div>
+      <div class="sg-cell"><div class="sg-val red" id="ps-losses">0</div><div class="sg-lbl">Losses</div></div>
+      <div class="sg-cell"><div class="sg-val" id="ps-winpct">—</div><div class="sg-lbl">Win %</div></div>
+    </div>
+    <div class="ads-status" id="ads-status"></div>
+    <div class="rating-chart-box">
+      <div class="chart-title">Rating History</div>
+      <div class="chart-area" id="chart-area"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Stockfish WASM -->
+<script src="/js/stockfish.js"></script>
+<script src="/js/chess.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
