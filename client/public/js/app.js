@@ -463,11 +463,11 @@ function renderBoard() {
       if (S.chess) {
         const p = S.chess.get(squareName);
         if (p) {
+          const GLYPHS = {wK:'♔',wQ:'♕',wR:'♖',wB:'♗',wN:'♘',wP:'♙',bK:'♚',bQ:'♛',bR:'♜',bB:'♝',bN:'♞',bP:'♟'};
+          const key2 = (p.color==='w' ? 'w' : 'b') + p.type.toUpperCase();
           const pe = document.createElement('div');
-          const key = (p.color==='w' ? 'w' : 'b') + p.type.toUpperCase();
-          pe.className = 'piece';
-          pe.style.cssText = 'width:85%;height:85%;background-size:contain;background-repeat:no-repeat;background-position:center;';
-          pe.style.backgroundImage = 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(PIECE_SVG[key]) + '")';
+          pe.className = 'piece ' + (p.color==='w' ? 'white-piece' : 'black-piece');
+          pe.textContent = GLYPHS[key2];
           sq.appendChild(pe);
         }
       }
