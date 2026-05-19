@@ -105,8 +105,8 @@ function getEval(fen) {
 // WEBSOCKET
 // ══════════════════════════════════════════
 function connectWS() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${location.host}/ws`;
+  
+  const url = `wss://${location.host}/ws`;
   S.ws = new WebSocket(url);
 
   S.ws.onopen = () => {
