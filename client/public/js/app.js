@@ -535,12 +535,21 @@ async function executeMyMove(from, to) {
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
 
-  // Get eval from Stockfish
-  const evalAfter = await getEval(S.chess.fen());
-  // From white's perspective
+  // Material-based eval (always works, no Stockfish needed for blunder detection)
+  const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
+  function materialScore(chess) {
+    let score = 0;
+    'abcdefgh'.split('').forEach(f => {
+      for (let r=1;r<=8;r++) {
+        const p = chess.get(f+r);
+        if (p) score += (p.color==='w'?1:-1) * VALS[p.type];
+      }
+    });
+    return score;
+  }
+  const evalAfter = materialScore(S.chess);
   const rawDelta = evalAfter - evalBefore;
   const delta = S.myColor === 'white' ? rawDelta : -rawDelta;
-
   S.evalScore = evalAfter;
 
   const quality = delta > 0.3 ? 'good' : (delta < -2.0 ? 'blunder' : delta < -0.3 ? 'inaccuracy' : '');

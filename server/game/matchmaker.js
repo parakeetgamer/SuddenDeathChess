@@ -148,7 +148,7 @@ function startBotGame(human) {
 function processMove(session, ws, color, msg) {
   const { from, to, san, evalBefore, evalAfter } = msg;
   const delta = (evalAfter || 0) - (evalBefore || 0);
-  const isBlunder = delta < -2.0;
+  const isBlunder = delta < -1.5;
   session.moves.push({ color, from, to, san, evalBefore, evalAfter, delta });
   stopTimer(session);
   if (session.bot && color === session.humanColor) {

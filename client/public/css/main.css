@@ -620,3 +620,33 @@ body {
   font-size: unset !important;
 }
 .sq:hover .piece { transform: scale(1.1) !important; }
+
+.timer-big.crit {
+  color: var(--crimson) !important;
+  animation: crit-shake .2s infinite, crit-pulse 0.4s ease-in-out infinite alternate !important;
+}
+@keyframes crit-pulse {
+  from { text-shadow: 0 0 10px rgba(225,29,46,.4), 0 0 30px rgba(225,29,46,.2); }
+  to   { text-shadow: 0 0 20px rgba(225,29,46,.9), 0 0 60px rgba(225,29,46,.5); }
+}
+.timer-big.warn {
+  color: var(--ember) !important;
+  animation: warn-pulse 0.6s ease-in-out infinite alternate !important;
+}
+@keyframes warn-pulse {
+  from { text-shadow: 0 0 8px rgba(255,122,26,.3); }
+  to   { text-shadow: 0 0 16px rgba(255,122,26,.7); }
+}
+.modal-title.win {
+  color: var(--ember) !important;
+  text-shadow: 0 0 40px rgba(255,122,26,.6);
+  animation: win-glow 1s ease-in-out infinite alternate;
+}
+@keyframes win-glow {
+  from { text-shadow: 0 0 20px rgba(255,122,26,.4); }
+  to   { text-shadow: 0 0 60px rgba(255,122,26,.9), 0 0 100px rgba(255,122,26,.3); }
+}
+.modal-title.loss {
+  color: var(--crimson) !important;
+  text-shadow: 0 0 40px rgba(225,29,46,.6);
+}
