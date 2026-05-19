@@ -500,8 +500,10 @@ async function onSqClick(e) {
 
   // Execute a legal move
   if (S.selected && S.legalMoves.some(m=>m.to===squareName)) {
-    await executeMyMove(S.selected, squareName);
-    S.selected = null; S.legalMoves = []; renderBoard();
+    const fromSq = S.selected;
+    S.selected = null; S.legalMoves = [];
+    await executeMyMove(fromSq, squareName);
+    renderBoard();
     return;
   }
 
@@ -563,9 +565,7 @@ async function executeMyMove(from, to) {
   const delta = S.myColor === 'white' ? rawDelta : -rawDelta;
   S.evalScore = evalAfter;
 
-  const isClientBlunder = delta <= -1.5;
-  const quality = isClientBlunder ? 'blunder' : delta > 0.3 ? 'good' : delta < -0.3 ? 'inaccuracy' : '';
-  console.log('[BLUNDER CHECK] delta:', delta, 'evalBefore:', evalBefore, 'evalAfter:', evalAfter, 'isBlunder:', isClientBlunder);
+  const quality = delta > 0.3 ? 'good' : (delta < -2.0 ? 'blunder' : delta < -0.3 ? 'inaccuracy' : '');
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
 
   updateMoveLog();
@@ -626,10 +626,12 @@ function onOpponentMove(msg) {
 
 // Server timer sync
 function onServerTimer(msg) {
-  // Sync local timer with server if drifted
-  if (Math.abs(S.timerVal - msg.value) > 1) {
-    S.timerVal = msg.value;
-    updateTimerUI();
+  // Server timer is authoritative - always sync
+  S.timerVal = msg.value;
+  updateTimerUI();
+  // If server says timer ticking and we don't have a local timer running, start one
+  if (msg.value > 0 && !S.localTimerInterval && msg.color === S.myColor) {
+    S.moveStartTime = Date.now() - ((10 - msg.value) * 1000);
   }
 }
 
@@ -656,10 +658,27 @@ function stopLocalTimer() {
 function updateTimerUI() {
   const el = document.getElementById('timer-num');
   const fill = document.getElementById('timer-fill');
+  if (!el) return;
   el.textContent = S.timerVal;
-  fill.style.width = (S.timerVal/10*100)+'%';
-  el.className = 'timer-big ' + (S.timerVal>5?'ok':S.timerVal>2?'warn':'crit');
-  fill.style.background = S.timerVal>5?'var(--green)':S.timerVal>2?'var(--yellow)':'var(--red)';
+  if (fill) {
+    fill.style.width = (S.timerVal/10*100)+'%';
+    fill.style.background = S.timerVal>5?'#34D399':S.timerVal>3?'#FF7A1A':'#E11D2E';
+    fill.style.transition = 'width 1s linear, background 0.2s';
+    fill.style.boxShadow = S.timerVal<=3 ? '0 0 20px #E11D2E, 0 0 40px rgba(225,29,46,0.5)' : 'none';
+  }
+  el.className = 'timer-display ' + (S.timerVal>5?'ok':S.timerVal>3?'warn':'crit');
+  // Pulse the entire screen when critical AND it's our turn
+  const flash = document.getElementById('flash');
+  const myTurn = S.chess && S.chess.turn() === S.myColor && S.myColor[0];
+  if (flash) {
+    if (S.timerVal <= 3 && S.timerVal > 0 && myTurn) {
+      flash.style.background = 'radial-gradient(ellipse at center, transparent 30%, rgba(225,29,46,0.25) 100%)';
+      flash.style.opacity = 1;
+      flash.style.transition = 'opacity 0.2s';
+    } else {
+      flash.style.opacity = 0;
+    }
+  }
 }
 
 // ══════════════════════════════════════════
@@ -746,10 +765,8 @@ document.getElementById('btn-resign').addEventListener('click', () => {
 // GAME OVER
 // ══════════════════════════════════════════
 function onGameOver(msg) {
-  console.log('[GAME OVER]', msg);
   S.gameOver = true;
   stopLocalTimer();
-  try {
 
   const iWon = msg.winner === S.myColor;
   if (iWon) { sndWin(); S.streak++; flashB('fg'); flashOv('rgba(45,198,83,.2)'); }
@@ -773,8 +790,7 @@ function onGameOver(msg) {
   const acc = myMoves.length ? Math.round(myMoves.filter(m=>m.quality!=='blunder'&&m.quality!=='inaccuracy').length/myMoves.length*100) : 100;
   const avgT = S.moveTimings.length ? Math.round(S.moveTimings.reduce((a,b)=>a+b,0)/S.moveTimings.length) : '—';
 
-  const knightEl = document.getElementById('m-knight') || document.getElementById('m-icon');
-  if (knightEl) knightEl.textContent = iWon ? '👑' : '💀';
+  document.getElementById('m-icon').textContent = iWon ? '👑' : '💀';
   document.getElementById('m-title').textContent = iWon ? 'VICTORY' : 'DEFEATED';
   document.getElementById('m-title').className = 'modal-title ' + (iWon?'win':'loss');
   document.getElementById('m-reason').textContent = msg.reason;
@@ -791,7 +807,6 @@ function onGameOver(msg) {
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
 
   loadLeaderboard();
-  } catch(e) { console.error('onGameOver error:', e); }
   setTimeout(() => document.getElementById('result-modal').classList.add('show'), 500);
 }
 
