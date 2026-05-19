@@ -26,6 +26,8 @@ function handleConnection(ws) {
       case 'find_match': return doFindMatch(ws);
       case 'cancel':     return doCancel(ws);
       case 'move':       return doMove(ws, msg);
+      case 'checkmate':  return doCheckmate(ws, msg);
+      case 'draw':       return doDraw(ws);
       case 'resign':     return doResign(ws);
       case 'ping':       return send(ws, { type: 'pong' });
     }
@@ -221,6 +223,22 @@ function startTurnTimer(session, color) {
 
 function stopTurnTimer(session) {
   if (session.timer) { clearInterval(session.timer); session.timer = null; }
+}
+
+
+function doCheckmate(ws, msg) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  const winner = msg.winner || colorOf(session, ws);
+  console.log('[CHECKMATE]', ws.player.username, 'wins');
+  endGame(session, winner, ws.player.username + ' wins by checkmate!');
+}
+
+function doDraw(ws) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  console.log('[DRAW] stalemate or insufficient material');
+  endGame(session, 'draw', 'Game drawn');
 }
 
 function doResign(ws) {

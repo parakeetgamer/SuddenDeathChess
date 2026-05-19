@@ -674,6 +674,15 @@ async function executeMyMove(from, to) {
     evalAfter,
   });
 
+  // Check for checkmate/stalemate after our move
+  if (S.chess.in_checkmate()) {
+    console.log('[CHECKMATE detected]');
+    wsSend({ type: 'checkmate', winner: S.myColor });
+  } else if (S.chess.in_stalemate() || S.chess.in_draw()) {
+    console.log('[DRAW detected]');
+    wsSend({ type: 'draw' });
+  }
+
   // Visual feedback
   if (isClientBlunder) {
     flashB('fr'); flashOv('rgba(225,29,46,.3)'); showFB('BLUNDER!', 'var(--crimson)'); sndBlunder();
