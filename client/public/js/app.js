@@ -563,7 +563,9 @@ async function executeMyMove(from, to) {
   const delta = S.myColor === 'white' ? rawDelta : -rawDelta;
   S.evalScore = evalAfter;
 
-  const quality = delta > 0.3 ? 'good' : (delta < -2.0 ? 'blunder' : delta < -0.3 ? 'inaccuracy' : '');
+  const isClientBlunder = delta <= -1.5;
+  const quality = isClientBlunder ? 'blunder' : delta > 0.3 ? 'good' : delta < -0.3 ? 'inaccuracy' : '';
+  console.log('[BLUNDER CHECK] delta:', delta, 'evalBefore:', evalBefore, 'evalAfter:', evalAfter, 'isBlunder:', isClientBlunder);
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
 
   updateMoveLog();
@@ -744,8 +746,10 @@ document.getElementById('btn-resign').addEventListener('click', () => {
 // GAME OVER
 // ══════════════════════════════════════════
 function onGameOver(msg) {
+  console.log('[GAME OVER]', msg);
   S.gameOver = true;
   stopLocalTimer();
+  try {
 
   const iWon = msg.winner === S.myColor;
   if (iWon) { sndWin(); S.streak++; flashB('fg'); flashOv('rgba(45,198,83,.2)'); }
@@ -769,7 +773,8 @@ function onGameOver(msg) {
   const acc = myMoves.length ? Math.round(myMoves.filter(m=>m.quality!=='blunder'&&m.quality!=='inaccuracy').length/myMoves.length*100) : 100;
   const avgT = S.moveTimings.length ? Math.round(S.moveTimings.reduce((a,b)=>a+b,0)/S.moveTimings.length) : '—';
 
-  document.getElementById('m-icon').textContent = iWon ? '👑' : '💀';
+  const knightEl = document.getElementById('m-knight') || document.getElementById('m-icon');
+  if (knightEl) knightEl.textContent = iWon ? '👑' : '💀';
   document.getElementById('m-title').textContent = iWon ? 'VICTORY' : 'DEFEATED';
   document.getElementById('m-title').className = 'modal-title ' + (iWon?'win':'loss');
   document.getElementById('m-reason').textContent = msg.reason;
@@ -786,6 +791,7 @@ function onGameOver(msg) {
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
 
   loadLeaderboard();
+  } catch(e) { console.error('onGameOver error:', e); }
   setTimeout(() => document.getElementById('result-modal').classList.add('show'), 500);
 }
 
