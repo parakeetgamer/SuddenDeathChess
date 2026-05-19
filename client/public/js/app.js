@@ -47,7 +47,10 @@ const S = {
   pendingFindMatch: false,
 };
 
-const GLYPH = null;
+const GLYPH = {
+  wK:'♔', wQ:'♕', wR:'♖', wB:'♗', wN:'♘', wP:'♙',
+  bK:'♚', bQ:'♛', bR:'♜', bB:'♝', bN:'♞', bP:'♟'
+};
 
 const PIECE_SVG = {
   wK:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 45 45"><g style="fill:#FFFFF0;stroke:#2a1f14;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M22.5 11.63V6M20 8h5" stroke-linejoin="miter"/><path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V17s-5.5-1.5-5.5-5.5c0-4 5.5-4.5 5.5-4.5M12.5 30c5.5-3 14.5-3 20 .5M12.5 33.5c5.5-3 14.5-3 20 .5M11.5 37c5.5-3.5 15.5-3.5 21 0" fill="none" stroke-linejoin="miter"/></g></svg>`,
