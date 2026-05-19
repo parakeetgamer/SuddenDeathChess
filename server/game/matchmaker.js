@@ -27,6 +27,7 @@ function handleConnection(ws) {
       case 'cancel':     return doCancel(ws);
       case 'move':       return doMove(ws, msg);
       case 'checkmate':  return doCheckmate(ws, msg);
+      case 'blunder':    return doBlunder(ws, msg);
       case 'draw':       return doDraw(ws);
       case 'resign':     return doResign(ws);
       case 'ping':       return send(ws, { type: 'pong' });
@@ -225,6 +226,16 @@ function stopTurnTimer(session) {
   if (session.timer) { clearInterval(session.timer); session.timer = null; }
 }
 
+
+function doBlunder(ws, msg) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  const color = colorOf(session, ws);
+  if (!color) return;
+  console.log('[BLUNDER]', ws.player.username, 'lost', msg.worstLoss, 'on', msg.san);
+  endGame(session, color === 'white' ? 'black' : 'white',
+    ws.player.username + ' blundered — ' + msg.san);
+}
 
 function doCheckmate(ws, msg) {
   const session = findSession(ws);
