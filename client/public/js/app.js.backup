@@ -420,9 +420,6 @@ function onGameStart(msg) {
   show('s-game');
   toast(`Game found vs ${opp.username} (${opp.rating})`);
 
-  boardBuilt = false;
-  S._flipped = undefined;
-
   // Pre-game countdown overlay
   startPreGameCountdown(msg.color === 'white');
 }
@@ -490,11 +487,10 @@ const PIECE_IMGS_URLS = {
 // Preload all pieces immediately so they're cached
 Object.values(PIECE_IMGS_URLS).forEach(url => { const i = new Image(); i.src = url; });
 
-// Build board ONCE, then only mutate what changes (no flicker)
-let boardBuilt = false;
-function buildBoardOnce() {
+function renderBoard() {
   const el = document.getElementById('board');
   el.innerHTML = '';
+
   const flipped = S.myColor === 'black';
   const files = flipped ? 'hgfedcba' : 'abcdefgh';
   const ranks = flipped ? '12345678' : '87654321';
@@ -508,54 +504,31 @@ function buildBoardOnce() {
       const file = flipped ? 7-col : col;
       const rank = flipped ? row   : 7-row;
       const squareName = 'abcdefgh'[file] + (rank+1);
+
       sq.className = 'sq ' + ((row+col)%2===0?'light':'dark');
       sq.dataset.sq = squareName;
+
+      if (S.lastFrom === squareName || S.lastTo === squareName) sq.classList.add('slast');
+      if (S.selected === squareName) sq.classList.add('ssel');
+      if (S.chess && S.legalMoves.some(m=>m.to===squareName)) {
+        const hasCapture = S.chess.get(squareName);
+        sq.classList.add(hasCapture ? 'scap' : 'sdot');
+      }
+
+      if (S.chess) {
+        const p = S.chess.get(squareName);
+        if (p) {
+          const key2 = (p.color==='w' ? 'w' : 'b') + p.type.toUpperCase();
+          const pe = document.createElement('img');
+          pe.src = PIECE_IMGS_URLS[key2];
+          pe.draggable = false;
+          pe.className = 'piece';
+          sq.appendChild(pe);
+        }
+      }
+
       sq.addEventListener('click', onSqClick);
       el.appendChild(sq);
-    }
-  }
-  boardBuilt = true;
-}
-
-function renderBoard() {
-  if (!boardBuilt || S._flipped !== (S.myColor === 'black')) {
-    S._flipped = S.myColor === 'black';
-    buildBoardOnce();
-  }
-  if (!S.chess) return;
-
-  const boardEl = document.getElementById('board');
-  const squares = boardEl.children;
-
-  for (let i = 0; i < squares.length; i++) {
-    const sq = squares[i];
-    const squareName = sq.dataset.sq;
-
-    const isLast = S.lastFrom === squareName || S.lastTo === squareName;
-    const isSel = S.selected === squareName;
-    const isLegal = S.legalMoves.some(m => m.to === squareName);
-    const hasCapture = isLegal && S.chess.get(squareName);
-
-    sq.classList.toggle('slast', isLast);
-    sq.classList.toggle('ssel', isSel);
-    sq.classList.toggle('sdot', isLegal && !hasCapture);
-    sq.classList.toggle('scap', !!hasCapture);
-
-    const p = S.chess.get(squareName);
-    const wantKey = p ? (p.color === 'w' ? 'w' : 'b') + p.type.toUpperCase() : null;
-    const currentImg = sq.querySelector('img.piece');
-    const currentKey = currentImg ? currentImg.dataset.k : null;
-
-    if (wantKey !== currentKey) {
-      if (currentImg) currentImg.remove();
-      if (wantKey) {
-        const pe = document.createElement('img');
-        pe.src = PIECE_IMGS_URLS[wantKey];
-        pe.dataset.k = wantKey;
-        pe.draggable = false;
-        pe.className = 'piece';
-        sq.appendChild(pe);
-      }
     }
   }
 }
@@ -614,8 +587,6 @@ async function executeMyMove(from, to) {
   }
 
   stopLocalTimer();
-  S.timerVal = 10;
-  updateTimerUI();
 
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
