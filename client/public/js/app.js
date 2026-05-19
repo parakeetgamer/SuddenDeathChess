@@ -542,8 +542,11 @@ async function onSqClick(e) {
 
   // Execute a legal move
   if (S.selected && S.legalMoves.some(m=>m.to===squareName)) {
-    await executeMyMove(S.selected, squareName);
-    S.selected = null; S.legalMoves = []; renderBoard();
+    const fromSq = S.selected;
+    S.selected = null;
+    S.legalMoves = [];
+    await executeMyMove(fromSq, squareName);
+    renderBoard();
     return;
   }
 
@@ -666,20 +669,8 @@ function onOpponentMove(msg) {
 
 // Server timer sync
 function onServerTimer(msg) {
-  // Only show the server's timer for whoever's turn it currently is
-  const isMyTurnNow = msg.color === S.myColor;
-  if (isMyTurnNow) {
-    S.timerVal = msg.value;
-    updateTimerUI();
-    if (msg.value > 0 && !S.localTimerInterval) {
-      S.moveStartTime = Date.now() - ((10 - msg.value) * 1000);
-    }
-  } else {
-    // Opponent's countdown - show in their slot
-    S.opponentTimer = msg.value;
-    S.timerVal = msg.value;
-    updateTimerUI();
-  }
+  S.timerVal = msg.value;
+  updateTimerUI();
 }
 
 // ══════════════════════════════════════════
@@ -700,9 +691,6 @@ function startLocalTimer() {
 function stopLocalTimer() {
   clearInterval(S.localTimerInterval);
   S.localTimerInterval = null;
-  // Reset display - opponent's timer will sync in from server
-  S.timerVal = 10;
-  updateTimerUI();
 }
 
 function updateTimerUI() {
