@@ -292,7 +292,7 @@ document.getElementById('btn-find').addEventListener('click', () => {
     searching = false;
     return;
   }
-  wsSend({ type: 'find_match' });
+  if (!S.user) { toast("Not logged in"); return; } wsSend({ type: "find_match" });
   btn.classList.add('searching');
   btn.textContent = 'CANCEL';
   document.getElementById('search-status').innerHTML = 'Searching for opponent<span class="dot-anim"></span>';
@@ -750,7 +750,7 @@ function onGameOver(msg) {
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
   document.getElementById('result-modal').classList.remove('show');
-  wsSend({ type: 'find_match' });
+  if (!S.user) { toast("Not logged in"); return; } wsSend({ type: "find_match" });
   const btn = document.getElementById('btn-find');
   btn.classList.add('searching'); btn.textContent = 'CANCEL';
   document.getElementById('search-status').innerHTML = 'Searching for opponent<span class="dot-anim"></span>';
