@@ -115,7 +115,7 @@ function startGame(white, black) {
   const info = { type: 'game_start', gameId: id, white: { username: white.username, rating: white.rating }, black: { username: black.username, rating: black.rating } };
   send(white.ws, { ...info, color: 'white' });
   send(black.ws, { ...info, color: 'black' });
-  startTimer(session, 'white');
+  setTimeout(() => { if (!session.over) startTimer(session, 'white'); }, 3000);
   console.log('[GAME] started:', white.username, 'vs', black.username);
 }
 
@@ -141,7 +141,7 @@ function startBotGame(human) {
   games.set(id, session);
   const info = { type: 'game_start', gameId: id, white: { username: human.username, rating: human.rating }, black: { username: bot.name, rating: bot.rating } };
   send(human.ws, { ...info, color: humanColor });
-  startTimer(session, 'white');
+  setTimeout(() => { if (!session.over) startTimer(session, 'white'); }, 3000);
   console.log('[BOT GAME] started:', human.username, 'vs', bot.name);
 }
 
