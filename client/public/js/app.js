@@ -518,7 +518,18 @@ async function onSqClick(e) {
 }
 
 async function executeMyMove(from, to) {
-  const evalBefore = S.evalScore;
+  const VALS2 = {p:1, n:3, b:3, r:5, q:9, k:0};
+  function materialNow() {
+    let score = 0;
+    'abcdefgh'.split('').forEach(f => {
+      for (let r=1;r<=8;r++) {
+        const p = S.chess.get(f+r);
+        if (p) score += (p.color==='w'?1:-1) * VALS2[p.type];
+      }
+    });
+    return score;
+  }
+  const evalBefore = materialNow();
 
   // Make the move in chess.js
   const moveObj = S.chess.move({ from, to, promotion: 'q' });
@@ -573,10 +584,12 @@ async function executeMyMove(from, to) {
     evalAfter,
   });
 
-  // Visual feedback (server will confirm blunder, but show local feedback)
-  if (quality === 'good') {
+  // Visual feedback
+  if (isClientBlunder) {
+    flashB('fr'); flashOv('rgba(225,29,46,.3)'); showFB('BLUNDER!', 'var(--crimson)'); sndBlunder();
+  } else if (quality === 'good') {
     flashB('fg'); flashOv('rgba(45,198,83,.14)'); showFB('NICE ✓', 'var(--green)'); sndGood();
-  } else if (quality !== 'blunder') {
+  } else {
     flashB('fg'); flashOv('rgba(45,198,83,.10)'); showFB('OK', 'var(--white-dim)');
   }
 
@@ -738,7 +751,7 @@ function onGameOver(msg) {
   if (iWon) { sndWin(); S.streak++; flashB('fg'); flashOv('rgba(45,198,83,.2)'); }
   else { sndBlunder(); S.streak = 0; flashB('fr'); flashOv('rgba(230,57,70,.25)'); }
 
-  const myRatings = msg.ratings[S.myColor];
+  const myRatings = msg.ratings && msg.ratings[S.myColor] ? msg.ratings[S.myColor] : {old: S.user?.rating||1200, new: S.user?.rating||1200, delta: 0};
 
   // Update local user state
   if (S.user) {
