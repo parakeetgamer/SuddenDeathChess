@@ -420,8 +420,8 @@ function onGameStart(msg) {
   show('s-game');
   toast(`Game found vs ${opp.username} (${opp.rating})`);
 
-  // Start timer if we go first (white)
-  if (msg.color === 'white') startLocalTimer();
+  // Pre-game countdown overlay
+  startPreGameCountdown(msg.color === 'white');
 }
 
 // ══════════════════════════════════════════
@@ -431,6 +431,61 @@ function pieceKey(p) {
   if (!p) return null;
   return (p.color === 'w' ? 'w' : 'b') + p.type.toUpperCase();
 }
+
+
+// ══════════════════════════════════════════
+// PRE-GAME COUNTDOWN
+// ══════════════════════════════════════════
+function startPreGameCountdown(iGoFirst) {
+  // Create overlay
+  let overlay = document.getElementById('pregame-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'pregame-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:850;display:flex;align-items:center;justify-content:center;background:rgba(14,17,22,0.85);backdrop-filter:blur(12px);';
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = 'flex';
+  let val = 3;
+  const render = () => {
+    overlay.innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:6px;color:#A1A1AA;text-transform:uppercase;margin-bottom:24px;">${iGoFirst ? 'You play first' : 'Opponent plays first'}</div>
+        <div id="cd-num" style="font-family:'Antonio',sans-serif;font-size:200px;font-weight:700;line-height:1;color:${val===0?'#FF7A1A':'#F5F1EA'};text-shadow:0 0 60px ${val===0?'rgba(255,122,26,0.8)':'rgba(245,241,234,0.4)'};animation:cdPop 1s ease-out;">${val===0?'GO':val}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:4px;color:#52525B;text-transform:uppercase;margin-top:24px;">One blunder = instant death</div>
+      </div>
+    `;
+    sndTick();
+  };
+  render();
+  const tick = setInterval(() => {
+    val--;
+    render();
+    if (val < 0) {
+      clearInterval(tick);
+      overlay.style.display = 'none';
+      if (iGoFirst) startLocalTimer();
+    }
+  }, 1000);
+}
+
+// Preloaded piece images (load once, reuse forever - no flicker)
+const PIECE_IMGS_URLS = {
+  wK:'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
+  wQ:'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
+  wR:'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
+  wB:'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
+  wN:'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
+  wP:'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
+  bK:'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
+  bQ:'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
+  bR:'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
+  bB:'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
+  bN:'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
+  bP:'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg',
+};
+// Preload all pieces immediately so they're cached
+Object.values(PIECE_IMGS_URLS).forEach(url => { const i = new Image(); i.src = url; });
 
 function renderBoard() {
   const el = document.getElementById('board');
@@ -463,23 +518,10 @@ function renderBoard() {
       if (S.chess) {
         const p = S.chess.get(squareName);
         if (p) {
-          const PIECE_IMGS = {
-            wK:'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
-            wQ:'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
-            wR:'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
-            wB:'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
-            wN:'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
-            wP:'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
-            bK:'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
-            bQ:'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
-            bR:'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
-            bB:'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
-            bN:'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
-            bP:'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg',
-          };
           const key2 = (p.color==='w' ? 'w' : 'b') + p.type.toUpperCase();
           const pe = document.createElement('img');
-          pe.src = PIECE_IMGS[key2];
+          pe.src = PIECE_IMGS_URLS[key2];
+          pe.draggable = false;
           pe.className = 'piece';
           sq.appendChild(pe);
         }
@@ -500,10 +542,8 @@ async function onSqClick(e) {
 
   // Execute a legal move
   if (S.selected && S.legalMoves.some(m=>m.to===squareName)) {
-    const fromSq = S.selected;
-    S.selected = null; S.legalMoves = [];
-    await executeMyMove(fromSq, squareName);
-    renderBoard();
+    await executeMyMove(S.selected, squareName);
+    S.selected = null; S.legalMoves = []; renderBoard();
     return;
   }
 
@@ -626,12 +666,19 @@ function onOpponentMove(msg) {
 
 // Server timer sync
 function onServerTimer(msg) {
-  // Server timer is authoritative - always sync
-  S.timerVal = msg.value;
-  updateTimerUI();
-  // If server says timer ticking and we don't have a local timer running, start one
-  if (msg.value > 0 && !S.localTimerInterval && msg.color === S.myColor) {
-    S.moveStartTime = Date.now() - ((10 - msg.value) * 1000);
+  // Only show the server's timer for whoever's turn it currently is
+  const isMyTurnNow = msg.color === S.myColor;
+  if (isMyTurnNow) {
+    S.timerVal = msg.value;
+    updateTimerUI();
+    if (msg.value > 0 && !S.localTimerInterval) {
+      S.moveStartTime = Date.now() - ((10 - msg.value) * 1000);
+    }
+  } else {
+    // Opponent's countdown - show in their slot
+    S.opponentTimer = msg.value;
+    S.timerVal = msg.value;
+    updateTimerUI();
   }
 }
 
@@ -653,32 +700,18 @@ function startLocalTimer() {
 function stopLocalTimer() {
   clearInterval(S.localTimerInterval);
   S.localTimerInterval = null;
+  // Reset display - opponent's timer will sync in from server
+  S.timerVal = 10;
+  updateTimerUI();
 }
 
 function updateTimerUI() {
   const el = document.getElementById('timer-num');
   const fill = document.getElementById('timer-fill');
-  if (!el) return;
   el.textContent = S.timerVal;
-  if (fill) {
-    fill.style.width = (S.timerVal/10*100)+'%';
-    fill.style.background = S.timerVal>5?'#34D399':S.timerVal>3?'#FF7A1A':'#E11D2E';
-    fill.style.transition = 'width 1s linear, background 0.2s';
-    fill.style.boxShadow = S.timerVal<=3 ? '0 0 20px #E11D2E, 0 0 40px rgba(225,29,46,0.5)' : 'none';
-  }
-  el.className = 'timer-display ' + (S.timerVal>5?'ok':S.timerVal>3?'warn':'crit');
-  // Pulse the entire screen when critical AND it's our turn
-  const flash = document.getElementById('flash');
-  const myTurn = S.chess && S.chess.turn() === S.myColor && S.myColor[0];
-  if (flash) {
-    if (S.timerVal <= 3 && S.timerVal > 0 && myTurn) {
-      flash.style.background = 'radial-gradient(ellipse at center, transparent 30%, rgba(225,29,46,0.25) 100%)';
-      flash.style.opacity = 1;
-      flash.style.transition = 'opacity 0.2s';
-    } else {
-      flash.style.opacity = 0;
-    }
-  }
+  fill.style.width = (S.timerVal/10*100)+'%';
+  el.className = 'timer-big ' + (S.timerVal>5?'ok':S.timerVal>2?'warn':'crit');
+  fill.style.background = S.timerVal>5?'var(--green)':S.timerVal>2?'var(--yellow)':'var(--red)';
 }
 
 // ══════════════════════════════════════════
