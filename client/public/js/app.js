@@ -419,6 +419,18 @@ function onGameStart(msg) {
   updateTurnUI();
   show('s-game');
   toast(`Game found vs ${opp.username} (${opp.rating})`);
+  // Inject emergency abandon button if not present
+  if (!document.getElementById('abandon-btn')) {
+    const topbar = document.querySelector('#s-game .topbar') || document.querySelector('.status')?.parentElement;
+    if (topbar) {
+      const btn = document.createElement('button');
+      btn.id = 'abandon-btn';
+      btn.textContent = 'ABANDON';
+      btn.onclick = window.abandonGame;
+      btn.style.cssText = 'background:rgba(225,29,46,0.15);border:1px solid rgba(225,29,46,0.4);color:#E11D2E;padding:8px 16px;border-radius:4px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:2px;cursor:pointer;margin-left:16px;text-transform:uppercase;';
+      topbar.appendChild(btn);
+    }
+  }
 
   boardBuilt = false;
   S._flipped = undefined;
@@ -812,9 +824,29 @@ document.getElementById('btn-resign').addEventListener('click', () => {
 });
 
 // ══════════════════════════════════════════
+
+// EMERGENCY: always-works abandon button
+window.abandonGame = function() {
+  if (S.ws && S.ws.readyState === 1) {
+    try { wsSend({ type: 'resign' }); } catch(e) {}
+  }
+  S.gameOver = true;
+  stopLocalTimer();
+  // Force back to lobby
+  document.getElementById('result-modal').classList.remove('show');
+  show('s-lobby');
+  document.getElementById('btn-find').textContent = 'FIND MATCH';
+  document.getElementById('btn-find').classList.remove('searching');
+  document.getElementById('search-status').textContent = '';
+};
+
+// Wrap onGameOver with bulletproof error logging
+const _originalOnGameOver = typeof onGameOver !== 'undefined' ? onGameOver : null;
+
 // GAME OVER
 // ══════════════════════════════════════════
 function onGameOver(msg) {
+  console.log('[GAME OVER]', JSON.stringify(msg));
   S.gameOver = true;
   stopLocalTimer();
 
