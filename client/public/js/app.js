@@ -399,7 +399,7 @@ function onGameStart(msg) {
   S.moveStartTime = 0;
 
   // Init chess.js
-  S.chess = new Chess();
+  if (typeof Chess === "undefined") { console.error("chess.js not loaded"); return; } S.chess = new Chess();
 
   const oppColor = msg.color === 'white' ? 'black' : 'white';
   const opp = msg.color === 'white' ? msg.black : msg.white;
@@ -464,8 +464,10 @@ function renderBoard() {
         const p = S.chess.get(squareName);
         if (p) {
           const pe = document.createElement('div');
-          pe.className = 'piece ' + (p[0]==='w' ? 'white-piece' : 'black-piece');
-          pe.textContent = GLYPH[pieceKey(p)];
+          const key = (p.color==='w' ? 'w' : 'b') + p.type.toUpperCase();
+          pe.className = 'piece';
+          pe.style.cssText = 'width:85%;height:85%;background-size:contain;background-repeat:no-repeat;background-position:center;';
+          pe.style.backgroundImage = 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(PIECE_SVG[key]) + '")';
           sq.appendChild(pe);
         }
       }
