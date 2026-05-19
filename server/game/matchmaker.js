@@ -28,6 +28,7 @@ function handleConnection(ws, req) {
 }
 
 function handleAuth(ws, msg, setPlayer) {
+  console.log("[AUTH] received auth message");
   try {
     const decoded = jwt.verify(msg.token, JWT_SECRET);
     db.get('SELECT * FROM users WHERE id = ?', [decoded.id], (err, user) => {
@@ -40,6 +41,7 @@ function handleAuth(ws, msg, setPlayer) {
 }
 
 function handleFindMatch(ws, player) {
+  console.log("[FIND] find_match received, player:", player ? player.username : "NULL");
   if (!player) return send(ws, { type: 'error', message: 'Not authenticated.' });
   if (waitingPlayers.find(p => p.id === player.id)) return;
   waitingPlayers.push(player);
@@ -48,6 +50,7 @@ function handleFindMatch(ws, player) {
 
   // If no match found in BOT_WAIT_TIME, assign a bot
   player.botTimer = setTimeout(() => {
+    console.log("[BOT TIMER] fired, checking if still waiting...");
     const stillWaiting = waitingPlayers.find(p => p.id === player.id);
     if (stillWaiting) {
       removeFromQueue(ws);
@@ -107,6 +110,7 @@ function startGame(white, black) {
 
 // ── Bot game ──
 function startGameWithBot(human) {
+  console.log("[BOT] starting bot game for:", human.username);
   const gameId = uuidv4();
   const humanColor = Math.random() < 0.5 ? 'white' : 'black';
   const botColor   = humanColor === 'white' ? 'black' : 'white';
