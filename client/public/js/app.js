@@ -44,6 +44,7 @@ const S = {
   streak: 0,
   ratingHistory: [],
   ws: null,
+  pendingFindMatch: false,
 };
 
 const GLYPH = null;
@@ -249,8 +250,11 @@ function onAuthed(user) {
   S.user = user;
   S.ratingHistory = [user.rating];
   updateNavUser();
-  // Apply no-ads if unlocked
   if (user.no_ads) hideAds();
+  if (S.pendingFindMatch) {
+    S.pendingFindMatch = false;
+    wsSend({ type: 'find_match' });
+  }
 }
 
 function updateNavUser() {
@@ -292,7 +296,7 @@ document.getElementById('btn-find').addEventListener('click', () => {
     searching = false;
     return;
   }
-  if (!S.user) { toast("Not logged in"); return; } wsSend({ type: "find_match" });
+  if (!S.user) { S.pendingFindMatch = true; return; } wsSend({ type: "find_match" });
   btn.classList.add('searching');
   btn.textContent = 'CANCEL';
   document.getElementById('search-status').innerHTML = 'Searching for opponent<span class="dot-anim"></span>';
@@ -750,7 +754,7 @@ function onGameOver(msg) {
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
   document.getElementById('result-modal').classList.remove('show');
-  if (!S.user) { toast("Not logged in"); return; } wsSend({ type: "find_match" });
+  if (!S.user) { S.pendingFindMatch = true; return; } wsSend({ type: "find_match" });
   const btn = document.getElementById('btn-find');
   btn.classList.add('searching'); btn.textContent = 'CANCEL';
   document.getElementById('search-status').innerHTML = 'Searching for opponent<span class="dot-anim"></span>';
