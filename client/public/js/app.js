@@ -649,7 +649,8 @@ async function executeMyMove(from, to) {
   const delta = S.myColor === 'white' ? rawDelta : -rawDelta;
   S.evalScore = evalAfter;
 
-  const quality = delta > 0.3 ? 'good' : (delta < -2.0 ? 'blunder' : delta < -0.3 ? 'inaccuracy' : '');
+  const isClientBlunder = delta <= -1.5;
+  const quality = isClientBlunder ? 'blunder' : delta > 0.3 ? 'good' : delta < -0.3 ? 'inaccuracy' : '';
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
 
   updateMoveLog();
@@ -792,8 +793,12 @@ function updateMoveLog() {
 // CAPTURES
 // ══════════════════════════════════════════
 function updateCaptures() {
-  document.getElementById('cap-you').innerHTML = S.capturedMe.map(p=>`<span>${GLYPH[p]||''}</span>`).join('');
-  document.getElementById('cap-opp').innerHTML = S.capturedOpp.map(p=>`<span>${GLYPH[p]||''}</span>`).join('');
+  try {
+    const youEl = document.getElementById('cap-you');
+    const oppEl = document.getElementById('cap-opp');
+    if (youEl) youEl.innerHTML = (S.capturedMe||[]).map(p=>`<span>${(typeof GLYPH !== 'undefined' && GLYPH[p])||''}</span>`).join('');
+    if (oppEl) oppEl.innerHTML = (S.capturedOpp||[]).map(p=>`<span>${(typeof GLYPH !== 'undefined' && GLYPH[p])||''}</span>`).join('');
+  } catch(e) { console.error('updateCaptures error:', e); }
 }
 
 // ══════════════════════════════════════════
@@ -849,6 +854,9 @@ function onGameOver(msg) {
   console.log('[GAME OVER]', JSON.stringify(msg));
   S.gameOver = true;
   stopLocalTimer();
+  // Helper that won't crash on missing elements
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const setCls = (id, cls) => { const el = document.getElementById(id); if (el) el.className = cls; };
 
   const iWon = msg.winner === S.myColor;
   if (iWon) { sndWin(); S.streak++; flashB('fg'); flashOv('rgba(45,198,83,.2)'); }
@@ -872,18 +880,17 @@ function onGameOver(msg) {
   const acc = myMoves.length ? Math.round(myMoves.filter(m=>m.quality!=='blunder'&&m.quality!=='inaccuracy').length/myMoves.length*100) : 100;
   const avgT = S.moveTimings.length ? Math.round(S.moveTimings.reduce((a,b)=>a+b,0)/S.moveTimings.length) : '—';
 
-  document.getElementById('m-icon').textContent = iWon ? '👑' : '💀';
-  document.getElementById('m-title').textContent = iWon ? 'VICTORY' : 'DEFEATED';
-  document.getElementById('m-title').className = 'modal-title ' + (iWon?'win':'loss');
-  document.getElementById('m-reason').textContent = msg.reason;
-  document.getElementById('m-r-old').textContent = myRatings.old;
-  document.getElementById('m-r-new').textContent = myRatings.new;
-  const de = document.getElementById('m-r-delta');
-  de.textContent = (myRatings.delta >= 0 ? '+' : '') + myRatings.delta;
-  de.className = 'r-delta ' + (myRatings.delta >= 0 ? 'up' : 'dn');
-  document.getElementById('m-moves').textContent = myMoves.length;
-  document.getElementById('m-acc').textContent = acc + '%';
-  document.getElementById('m-time').textContent = typeof avgT === 'number' ? avgT+'s' : avgT;
+  setEl('m-icon', iWon ? '👑' : '💀'); setEl('m-knight', iWon ? '👑' : '💀');
+  setEl('m-title', iWon ? 'VICTORY' : 'DEFEATED');
+  setCls('m-title', 'modal-title ' + (iWon?'win':'loss'));
+  setEl('m-reason', msg.reason);
+  setEl('m-r-old', myRatings.old);
+  setEl('m-r-new', myRatings.new);
+  setEl('m-r-delta', (myRatings.delta >= 0 ? '+' : '') + myRatings.delta);
+  setCls('m-r-delta', 'r-delta ' + (myRatings.delta >= 0 ? 'up' : 'dn'));
+  setEl('m-moves', myMoves.length);
+  setEl('m-acc', acc + '%');
+  setEl('m-time', typeof avgT === 'number' ? avgT+'s' : avgT);
 
   const noAdsEl = document.getElementById('no-ads-unlock');
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
