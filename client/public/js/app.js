@@ -390,7 +390,7 @@ function onGameStart(msg) {
   S.myColor = msg.color;
   S.gameId = msg.gameId;
   S.gameOver = false;
-  S.selected = null; S.legalMoves = [];
+  S.selected = null; S.legalMoves = []; renderBoard();
   S.lastFrom = null; S.lastTo = null;
   S.moveHistory = [];
   S.capturedMe = []; S.capturedOpp = [];
@@ -501,7 +501,7 @@ async function onSqClick(e) {
   // Execute a legal move
   if (S.selected && S.legalMoves.some(m=>m.to===squareName)) {
     await executeMyMove(S.selected, squareName);
-    S.selected = null; S.legalMoves = [];
+    S.selected = null; S.legalMoves = []; renderBoard();
     return;
   }
 
@@ -513,7 +513,7 @@ async function onSqClick(e) {
     return;
   }
 
-  S.selected = null; S.legalMoves = [];
+  S.selected = null; S.legalMoves = []; renderBoard();
   renderBoard();
 }
 
