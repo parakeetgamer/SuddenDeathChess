@@ -448,7 +448,7 @@ function renderBoard() {
         const p = S.chess.get(squareName);
         if (p) {
           const pe = document.createElement('div');
-          pe.className = 'piece';
+          pe.className = 'piece ' + (p[0]==='w' ? 'white-piece' : 'black-piece');
           pe.textContent = GLYPH[pieceKey(p)];
           sq.appendChild(pe);
         }
