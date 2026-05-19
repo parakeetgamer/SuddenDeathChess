@@ -652,9 +652,44 @@ async function executeMyMove(from, to) {
   const delta = S.myColor === 'white' ? rawDelta : -rawDelta;
   S.evalScore = evalAfter;
 
-  const isClientBlunder = delta <= -1.5;
+  // BLUNDER DETECTION: check if opponent can capture our moved piece without losing equal value
+  let isClientBlunder = false;
+  let worstLoss = 0;
+  try {
+    const myColorChar = S.myColor[0];
+    const opponentMoves = S.chess.moves({ verbose: true });
+    // Find any move where opponent captures our piece on the destination square
+    for (const om of opponentMoves) {
+      if (om.to === to && om.captured) {
+        // They capture what we just moved. What did we move?
+        const myPieceValue = VALS[moveObj.piece] || 0;
+        // After they capture, can we recapture? Simulate it
+        const test = new Chess(S.chess.fen());
+        test.move({ from: om.from, to: om.to, promotion: 'q' });
+        const ourRecaptures = test.moves({ verbose: true }).filter(rm => rm.to === to && rm.captured);
+        let theirLoss = 0;
+        if (ourRecaptures.length > 0) {
+          theirLoss = VALS[om.piece] || 0;
+        }
+        const netLoss = myPieceValue - theirLoss;
+        if (netLoss > worstLoss) worstLoss = netLoss;
+      }
+    }
+    // Also: did we move into a square where a pawn/piece can fork or attack us?
+    // Simple version: if any capture of our just-moved piece loses 1.5+ material net, it's a blunder
+    isClientBlunder = worstLoss >= 1.5;
+  } catch (e) {
+    console.error('Blunder analysis error:', e);
+  }
+  console.log('[BLUNDER CHECK] worstLoss:', worstLoss, 'isBlunder:', isClientBlunder, 'delta:', delta);
+
   const quality = isClientBlunder ? 'blunder' : delta > 0.3 ? 'good' : delta < -0.3 ? 'inaccuracy' : '';
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
+
+  // If it's a blunder, signal to server to end the game
+  if (isClientBlunder) {
+    wsSend({ type: 'blunder', san: moveObj.san, worstLoss });
+  }
 
   updateMoveLog();
   updateEvalUI();
