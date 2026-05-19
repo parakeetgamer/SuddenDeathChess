@@ -2,7 +2,6 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { JWT_SECRET } = require('./auth');
-
 const router = express.Router();
 
 function auth(req, res, next) {
@@ -36,5 +35,4 @@ router.get('/:username', (req, res) => {
 function safeUser(u) {
   return { id: u.id, username: u.username, rating: u.rating, peak_rating: u.peak_rating, wins: u.wins, losses: u.losses, games: u.games, no_ads: u.no_ads === 1 };
 }
-
 module.exports = router;

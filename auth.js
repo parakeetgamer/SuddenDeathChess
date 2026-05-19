@@ -2,15 +2,14 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'sdc-dev-secret-change-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET || 'sdc-dev-secret';
 
 router.post('/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
   if (username.length < 3 || username.length > 20) return res.status(400).json({ error: 'Username must be 3-20 characters.' });
-  if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: 'Only letters, numbers, and underscores.' });
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: 'Only letters, numbers, underscores.' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   try {
     const hash = await bcrypt.hash(password, 10);
@@ -25,9 +24,7 @@ router.post('/register', async (req, res) => {
         res.json({ token, user: safeUser(user) });
       });
     });
-  } catch(e) {
-    res.status(500).json({ error: 'Server error.' });
-  }
+  } catch(e) { res.status(500).json({ error: 'Server error.' }); }
 });
 
 router.post('/login', async (req, res) => {
@@ -46,6 +43,5 @@ router.post('/login', async (req, res) => {
 function safeUser(u) {
   return { id: u.id, username: u.username, rating: u.rating, peak_rating: u.peak_rating, wins: u.wins, losses: u.losses, games: u.games, no_ads: u.no_ads === 1 };
 }
-
 module.exports = router;
 module.exports.JWT_SECRET = JWT_SECRET;

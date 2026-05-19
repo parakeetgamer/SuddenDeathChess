@@ -1,22 +1,17 @@
-const Database = require('better-sqlite3');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/game.db');
-
-// Ensure data directory exists
-const fs = require('fs');
 const dataDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(DB_PATH);
+const db = new sqlite3.Database(DB_PATH);
 
-// Enable WAL mode for better concurrent performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-// ── Schema ──
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
+db.serialize(() => {
+  db.run('PRAGMA journal_mode = WAL');
+  db.run('PRAGMA foreign_keys = ON');
+  db.run(`CREATE TABLE IF NOT EXISTS users (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     username    TEXT    UNIQUE NOT NULL COLLATE NOCASE,
     password    TEXT    NOT NULL,
@@ -27,13 +22,12 @@ db.exec(`
     games       INTEGER NOT NULL DEFAULT 0,
     no_ads      INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS games (
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS games (
     id            TEXT    PRIMARY KEY,
-    white_id      INTEGER REFERENCES users(id),
-    black_id      INTEGER REFERENCES users(id),
-    winner_id     INTEGER REFERENCES users(id),
+    white_id      INTEGER,
+    black_id      INTEGER,
+    winner_id     INTEGER,
     end_reason    TEXT,
     moves         TEXT    DEFAULT '[]',
     white_rating  INTEGER,
@@ -43,10 +37,8 @@ db.exec(`
     duration_secs INTEGER,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     ended_at      TEXT
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_users_rating ON users(rating DESC);
-  CREATE INDEX IF NOT EXISTS idx_games_players ON games(white_id, black_id);
-`);
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_rating ON users(rating DESC)`);
+});
 
 module.exports = db;
