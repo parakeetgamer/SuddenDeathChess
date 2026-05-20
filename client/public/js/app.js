@@ -689,6 +689,27 @@ async function executeMyMove(from, to) {
   // If it's a blunder, signal to server to end the game
   if (isClientBlunder) {
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss });
+    // Lock the board immediately — don't wait for server round-trip
+    S.gameOver = true;
+    stopLocalTimer();
+    // Show the dramatic blunder feedback NOW
+    setTimeout(() => {
+      // If server hasn't ended the game in 1.5s, force-end it locally
+      if (!document.getElementById('result-modal').classList.contains('show')) {
+        console.log('[BLUNDER] Server slow, forcing local game over');
+        onGameOver({
+          type: 'game_over',
+          reason: 'You blundered — ' + moveObj.san,
+          winner: S.myColor === 'white' ? 'black' : 'white',
+          winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
+          ratings: {
+            white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
+            black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
+          },
+          noAdsUnlocked: { white: false, black: false }
+        });
+      }
+    }, 1500);
   }
 
   updateMoveLog();
