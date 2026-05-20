@@ -1051,11 +1051,17 @@ function onGameOver(msg) {
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
 
   loadLeaderboard();
+  // Delay modal so dramatic blunder reaction plays first
   setTimeout(() => {
-    document.getElementById('result-modal').classList.add('show');
-    // Start auto-restart countdown
+    const modal = document.getElementById('result-modal');
+    if (modal) {
+      modal.style.transition = 'opacity 0.6s ease-in';
+      modal.style.opacity = '0';
+      modal.classList.add('show');
+      setTimeout(() => { modal.style.opacity = '1'; }, 50);
+    }
     startAutoRestartCountdown();
-  }, 500);
+  }, 2800);
 }
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
