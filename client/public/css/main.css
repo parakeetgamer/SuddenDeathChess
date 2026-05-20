@@ -821,3 +821,28 @@ body {
   20%  { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
   100% { transform: translate(-50%, -80%) scale(0.9); opacity: 0; }
 }
+
+/* ════════════════════════════════════════
+   BLUNDER SUBTEXT
+════════════════════════════════════════ */
+.blunder-sub {
+  position: fixed;
+  top: 65%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  color: rgba(225, 29, 46, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  z-index: 9001;
+  pointer-events: none;
+  animation: blunderSubFade 2.5s ease-out forwards;
+}
+@keyframes blunderSubFade {
+  0%   { opacity: 0; transform: translate(-50%, -30%); }
+  20%  { opacity: 0; }
+  40%  { opacity: 1; transform: translate(-50%, -50%); }
+  80%  { opacity: 1; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(-50%, -70%); }
+}

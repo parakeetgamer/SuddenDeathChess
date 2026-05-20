@@ -562,8 +562,13 @@ function renderBoard() {
     const currentKey = currentImg ? currentImg.dataset.k : null;
 
     if (wantKey !== currentKey) {
-      if (currentImg) currentImg.remove();
-      if (wantKey) {
+      if (currentImg && !wantKey) {
+        currentImg.remove();
+      } else if (currentImg && wantKey) {
+        // Just update src + key, don't recreate the element
+        currentImg.src = PIECE_IMGS_URLS[wantKey];
+        currentImg.dataset.k = wantKey;
+      } else if (wantKey) {
         const pe = document.createElement('img');
         pe.src = PIECE_IMGS_URLS[wantKey];
         pe.dataset.k = wantKey;
@@ -742,14 +747,31 @@ async function executeMyMove(from, to) {
   // DRAMATIC visual feedback
   if (isClientBlunder) {
     sndBlunder();
+    const reactions = [
+      { text: 'BLUNDER', sub: 'You hung that piece' },
+      { text: 'CATASTROPHIC', sub: 'Game over, you' },
+      { text: 'OOF', sub: 'That was painful to watch' },
+      { text: 'YIKES', sub: 'What were you thinking?' },
+      { text: 'DEFEATED', sub: 'One mistake, one death' },
+      { text: 'EXECUTED', sub: 'The blunder claims another' },
+      { text: 'DISASTER', sub: 'You walked right into it' },
+      { text: 'FATAL', sub: 'No coming back from that' },
+      { text: 'BRUTAL', sub: 'Hope you have a backup queen' },
+      { text: 'TRAGIC', sub: 'So close yet so far' },
+    ];
+    const r = reactions[Math.floor(Math.random() * reactions.length)];
     const flash = document.createElement('div');
     flash.className = 'blunder-flash';
     document.body.appendChild(flash);
     const text = document.createElement('div');
     text.className = 'blunder-text';
-    text.textContent = 'BLUNDER';
+    text.textContent = r.text;
     document.body.appendChild(text);
-    setTimeout(() => { flash.remove(); text.remove(); }, 1200);
+    const sub = document.createElement('div');
+    sub.className = 'blunder-sub';
+    sub.textContent = r.sub;
+    document.body.appendChild(sub);
+    setTimeout(() => { flash.remove(); text.remove(); sub.remove(); }, 2500);
   } else if (quality === 'good') {
     sndGood();
     const flash = document.createElement('div');
@@ -930,6 +952,57 @@ window.abandonGame = function() {
 // Wrap onGameOver with bulletproof error logging
 const _originalOnGameOver = typeof onGameOver !== 'undefined' ? onGameOver : null;
 
+
+// Auto-restart countdown on result modal
+function startAutoRestartCountdown() {
+  const btn = document.getElementById('btn-replay') || document.getElementById('m-again') || document.querySelector('[data-action="rematch"]');
+  if (!btn) {
+    console.log('[AUTORESTART] no rematch button found');
+    return;
+  }
+  const originalText = btn.textContent;
+  let seconds = 10;
+  btn.textContent = originalText + ' (' + seconds + ')';
+  btn.style.position = 'relative';
+  btn.style.overflow = 'hidden';
+  // Add progress bar to button
+  let bar = btn.querySelector('.auto-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'auto-bar';
+    bar.style.cssText = 'position:absolute;left:0;bottom:0;height:3px;width:100%;background:#FF7A1A;transition:width 1s linear;';
+    btn.appendChild(bar);
+  }
+  bar.style.width = '100%';
+  setTimeout(() => { bar.style.width = '0%'; }, 50);
+
+  const interval = setInterval(() => {
+    seconds--;
+    if (seconds <= 0) {
+      clearInterval(interval);
+      btn.textContent = originalText;
+      if (bar) bar.remove();
+      // Auto-click rematch
+      const modal = document.getElementById('result-modal');
+      if (modal && modal.classList.contains('show')) {
+        btn.click();
+      }
+    } else {
+      btn.textContent = originalText + ' (' + seconds + ')';
+    }
+  }, 1000);
+
+  // If user clicks anything, cancel the auto-restart
+  const cancel = () => {
+    clearInterval(interval);
+    btn.textContent = originalText;
+    if (bar) bar.remove();
+    document.removeEventListener('click', cancel);
+  };
+  // Wait a moment then listen for any click
+  setTimeout(() => document.addEventListener('click', cancel, { once: true }), 100);
+}
+
 // GAME OVER
 // ══════════════════════════════════════════
 function onGameOver(msg) {
@@ -978,7 +1051,11 @@ function onGameOver(msg) {
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
 
   loadLeaderboard();
-  setTimeout(() => document.getElementById('result-modal').classList.add('show'), 500);
+  setTimeout(() => {
+    document.getElementById('result-modal').classList.add('show');
+    // Start auto-restart countdown
+    startAutoRestartCountdown();
+  }, 500);
 }
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
