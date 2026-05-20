@@ -14,12 +14,12 @@ class BotPlayer {
     this.color = botColor;
     this.chess = new Chess();
     this.name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-    // Match human rating within +/- 50, clamped to 600-2200
     const hr = humanRating || 1200;
     this.rating = Math.max(600, Math.min(2200, hr + (Math.floor(Math.random() * 100) - 50)));
-    // Blunder rate scales inversely with rating: 1200 = 15% blunder chance, 1800 = 5%, 2000+ = 2%
-    this.blunderChance = Math.max(0.02, 0.30 - (this.rating - 800) / 4000);
+    // Blunder chance: 25% at 800 rating, 5% at 1800, 2% at 2200
+    this.blunderChance = Math.max(0.02, 0.35 - (this.rating - 600) / 5000);
     this.active = true;
+    console.log('[BOT] created', this.name, 'rating', this.rating, 'blunder%', (this.blunderChance*100).toFixed(0));
   }
 
   onMove(from, to) {
@@ -32,29 +32,59 @@ class BotPlayer {
 
   scheduleMove() {
     if (!this.active || this.session.over) return;
-    const delay = 600 + Math.random() * 1800;
-    setTimeout(() => this.makeMove(), delay);
+    const delay = 600 + Math.random() * 1500;
+    setTimeout(() => {
+      try {
+        this.makeMove();
+      } catch (e) {
+        console.error('[BOT] makeMove crashed:', e.message, e.stack);
+        // Fallback: make any legal move so game doesn't freeze
+        try {
+          const moves = this.chess.moves({ verbose: true });
+          if (moves.length > 0) {
+            const m = moves[Math.floor(Math.random() * moves.length)];
+            this.chess.move({ from: m.from, to: m.to, promotion: 'q' });
+            this.session.onBotMove({
+              from: m.from, to: m.to, san: m.san,
+              evalBefore: 0, evalAfter: 0,
+              color: this.color === 'w' ? 'white' : 'black',
+            });
+          }
+        } catch (e2) {
+          console.error('[BOT] fallback also failed:', e2.message);
+        }
+      }
+    }, delay);
   }
 
   makeMove() {
     if (!this.active || this.session.over) return;
-    if (this.chess.turn() !== this.color) {
-      console.error('[BOT] not my turn, expected', this.color, 'but turn is', this.chess.turn());
-      return;
-    }
+    if (this.chess.turn() !== this.color) return;
+
     const legalMoves = this.chess.moves({ verbose: true });
-    if (legalMoves.length === 0) {
-      console.log('[BOT] no legal moves - checkmate or stalemate');
-      return;
+    if (legalMoves.length === 0) return;
+
+    let chosen;
+
+    // Decide if we'll blunder this turn
+    const willBlunder = Math.random() < this.blunderChance;
+    if (willBlunder && legalMoves.length > 1) {
+      chosen = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+      console.log('[BOT]', this.name, 'making weak move (rating', this.rating, ')');
+    } else {
+      chosen = this.chooseMove(legalMoves);
     }
-    const move = this.chooseMove(legalMoves);
-    if (!move) return;
-    const result = this.chess.move({ from: move.from, to: move.to, promotion: 'q' });
+
+    if (!chosen) return;
+
+    const result = this.chess.move({ from: chosen.from, to: chosen.to, promotion: 'q' });
     if (!result) {
-      console.error('[BOT] chess.js rejected its own choice', move);
+      console.error('[BOT] chess.js rejected chosen move', chosen);
       return;
     }
+
     console.log('[BOT]', this.name, 'plays', result.san);
+
     this.session.onBotMove({
       from: result.from,
       to: result.to,
@@ -65,74 +95,40 @@ class BotPlayer {
     });
   }
 
-  // Evaluate a position from the bot's perspective (positive = good for bot)
-  evaluatePosition(chess) {
-    if (chess.in_checkmate()) {
-      // If opponent is mated, that's amazing; if we are, terrible
-      return chess.turn() === this.color ? -10000 : 10000;
-    }
-    if (chess.in_stalemate() || chess.in_draw()) return 0;
-    let score = 0;
-    'abcdefgh'.split('').forEach(f => {
-      for (let r = 1; r <= 8; r++) {
-        const p = chess.get(f + r);
-        if (!p) continue;
-        const val = PIECE_VALUE[p.type];
-        score += (p.color === this.color ? 1 : -1) * val;
-      }
-    });
-    // Small bonus for mobility
-    const myMoves = chess.turn() === this.color ? chess.moves().length : 0;
-    score += myMoves * 0.05;
-    return score;
-  }
-
-  // Look at each candidate move; for each, simulate opponent's BEST response
   chooseMove(moves) {
-    // Decide if we're going to blunder this turn
-    const willBlunder = Math.random() < this.blunderChance;
-    if (willBlunder && moves.length > 1) {
-      // Pick a random move, weighted toward worse moves
-      console.log('[BOT] making a deliberate suboptimal move (rating', this.rating, ')');
-      return moves[Math.floor(Math.random() * moves.length)];
-    }
-
+    // Score each move with simple heuristics (no expensive lookahead that can crash)
     const scored = moves.map(m => {
-      // Apply our move
-      const test = new Chess(this.chess.fen());
-      test.move({ from: m.from, to: m.to, promotion: 'q' });
-
-      // If this is mate-in-1 for us, take it immediately
-      if (test.in_checkmate()) {
-        return { move: m, score: 10000 };
+      let score = 0;
+      // Captures are good, weighted by what we capture
+      if (m.captured) score += PIECE_VALUE[m.captured] * 10;
+      // Checks bonus
+      if (m.san.includes('+')) score += 2;
+      // Checkmate is highest
+      if (m.san.includes('#')) score += 10000;
+      // Penalize moves that hang our piece (basic 1-ply check, in try/catch)
+      try {
+        const test = new Chess(this.chess.fen());
+        test.move({ from: m.from, to: m.to, promotion: 'q' });
+        const oppMoves = test.moves({ verbose: true });
+        const myValue = PIECE_VALUE[m.piece] || 0;
+        for (const om of oppMoves) {
+          if (om.to === m.to && om.captured) {
+            const theirValue = PIECE_VALUE[om.piece] || 0;
+            // Will we lose more than we'd gain back?
+            const net = myValue - theirValue;
+            if (net > 0) score -= net * 8;
+            break;
+          }
+        }
+      } catch (e) {
+        // If sim fails just skip the penalty
       }
-
-      // Look at opponent's best response (1-ply lookahead)
-      const oppMoves = test.moves({ verbose: true });
-      if (oppMoves.length === 0) {
-        // Stalemate
-        return { move: m, score: 0 };
-      }
-
-      let worstForUs = Infinity;
-      for (const om of oppMoves) {
-        const test2 = new Chess(test.fen());
-        test2.move({ from: om.from, to: om.to, promotion: 'q' });
-        const evalAfter = this.evaluatePosition(test2);
-        if (evalAfter < worstForUs) worstForUs = evalAfter;
-      }
-
-      // Add small randomness so bot isn't 100% predictable
-      // Strength scales with rating: higher rated bots have less randomness
-      const noise = (2200 - this.rating) / 200;  // ~7 at 800, ~0 at 2200
-      const score = worstForUs + (Math.random() - 0.5) * noise;
+      score += Math.random() * 2;
       return { move: m, score };
     });
 
     scored.sort((a, b) => b.score - a.score);
-
-    // Pick from top N where N scales with rating
-    // Lower-rated bots pick from a wider range (more variance)
+    // Lower rating = pick from wider top set
     const topN = Math.max(1, Math.round((2200 - this.rating) / 400));
     const top = scored.slice(0, Math.min(topN, scored.length));
     return top[Math.floor(Math.random() * top.length)].move;
