@@ -718,13 +718,27 @@ async function executeMyMove(from, to) {
     wsSend({ type: 'draw' });
   }
 
-  // Visual feedback
+  // DRAMATIC visual feedback
   if (isClientBlunder) {
-    flashB('fr'); flashOv('rgba(225,29,46,.3)'); showFB('BLUNDER!', 'var(--crimson)'); sndBlunder();
+    sndBlunder();
+    const flash = document.createElement('div');
+    flash.className = 'blunder-flash';
+    document.body.appendChild(flash);
+    const text = document.createElement('div');
+    text.className = 'blunder-text';
+    text.textContent = 'BLUNDER';
+    document.body.appendChild(text);
+    setTimeout(() => { flash.remove(); text.remove(); }, 1200);
   } else if (quality === 'good') {
-    flashB('fg'); flashOv('rgba(45,198,83,.14)'); showFB('NICE ✓', 'var(--green)'); sndGood();
-  } else {
-    flashB('fg'); flashOv('rgba(45,198,83,.10)'); showFB('OK', 'var(--white-dim)');
+    sndGood();
+    const flash = document.createElement('div');
+    flash.className = 'good-flash';
+    document.body.appendChild(flash);
+    const text = document.createElement('div');
+    text.className = 'good-text';
+    text.textContent = moveObj.captured ? 'NICE TAKE' : 'GOOD MOVE';
+    document.body.appendChild(text);
+    setTimeout(() => { flash.remove(); text.remove(); }, 1000);
   }
 
   updateTurnUI();

@@ -142,7 +142,7 @@ function startBotGame(ws) {
     timer: null, timerVal: 10, over: false,
     bot: null
   };
-  const bot = new BotPlayer(session, 'b', db);
+  const bot = new BotPlayer(session, 'b', human.rating);
   session.bot = bot;
   session.black = { id: -1, username: bot.name, rating: bot.rating };
 
