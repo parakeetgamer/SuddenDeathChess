@@ -68,52 +68,126 @@ const PIECE_SVG = {
 };
 
 // ══════════════════════════════════════════
-// STOCKFISH
+// STOCKFISH ENGINE (proper queued wrapper)
 // ══════════════════════════════════════════
-let stockfish = null;
-let evalResolve = null;
+// Returns evals in WHITE'S PERSPECTIVE always.
+// +N means white is up N pawns. -N means black is up.
+// Internally handles the side-to-move flip that UCI reports.
+const SF = {
+  engine: null,
+  ready: false,
+  queue: [],
+  current: null,   // { fen, resolve, latestCp, latestMate, sideToMove, timer }
+  THINK_MS: 600,
+  HARD_TIMEOUT_MS: 1500,
+};
 
 function initStockfish() {
-  // stockfish.js exposes a global or worker depending on build
-  // Using the simple single-file version
   try {
-    if (typeof Stockfish !== 'undefined') {
-      stockfish = Stockfish();
-      stockfish.onmessage = onStockfishMessage;
-      stockfish.postMessage('uci');
-      stockfish.postMessage('setoption name MultiPV value 1');
-      stockfish.postMessage('isready');
+    if (typeof Stockfish === 'undefined') {
+      console.warn('[SF] Stockfish global not found, evals will be 0');
+      return;
     }
+    SF.engine = Stockfish();
+    SF.engine.onmessage = onStockfishMessage;
+    SF.engine.postMessage('uci');
+    SF.engine.postMessage('setoption name MultiPV value 1');
+    SF.engine.postMessage('setoption name Threads value 1');
+    SF.engine.postMessage('setoption name Hash value 16');
+    SF.engine.postMessage('ucinewgame');
+    SF.engine.postMessage('isready');
   } catch(e) {
-    console.warn('Stockfish not loaded, using simulated eval');
+    console.error('[SF] init failed:', e);
   }
 }
 
 function onStockfishMessage(event) {
   const msg = typeof event === 'string' ? event : event.data;
   if (!msg) return;
-  if (msg.startsWith('info') && msg.includes('score cp')) {
-    const match = msg.match(/score cp (-?\d+)/);
-    if (match && evalResolve) {
-      const cp = parseInt(match[1]) / 100; // centipawns to pawns
-      evalResolve(cp);
-      evalResolve = null;
+
+  if (msg === 'readyok' || msg.startsWith('uciok')) {
+    SF.ready = true;
+    pumpQueue();
+    return;
+  }
+
+  if (!SF.current) return;
+
+  if (msg.startsWith('info') && msg.includes(' pv ')) {
+    // Track latest score during search
+    const mateMatch = msg.match(/score mate (-?\d+)/);
+    const cpMatch = msg.match(/score cp (-?\d+)/);
+    if (mateMatch) {
+      SF.current.latestMate = parseInt(mateMatch[1]);
+      SF.current.latestCp = null;
+    } else if (cpMatch) {
+      SF.current.latestCp = parseInt(cpMatch[1]);
+      SF.current.latestMate = null;
     }
+    return;
+  }
+
+  if (msg.startsWith('bestmove')) {
+    finishCurrent();
+    return;
   }
 }
 
-function getEval(fen) {
+function finishCurrent() {
+  if (!SF.current) return;
+  const c = SF.current;
+  SF.current = null;
+  if (c.timer) clearTimeout(c.timer);
+
+  // Convert side-to-move-perspective into white-perspective
+  let whiteCp;
+  if (c.latestMate !== null && c.latestMate !== undefined) {
+    // mate N from side-to-move's POV. +mate for stm = stm wins.
+    // Treat mate as ±100 pawns so it dominates blunder math.
+    const mateForStm = c.latestMate > 0 ? 100 : -100;
+    whiteCp = c.sideToMove === 'w' ? mateForStm * 100 : -mateForStm * 100;
+  } else if (c.latestCp !== null && c.latestCp !== undefined) {
+    whiteCp = c.sideToMove === 'w' ? c.latestCp : -c.latestCp;
+  } else {
+    whiteCp = 0;
+  }
+
+  c.resolve(whiteCp / 100); // pawns, white POV
+  pumpQueue();
+}
+
+function pumpQueue() {
+  if (!SF.ready || SF.current || SF.queue.length === 0) return;
+  const job = SF.queue.shift();
+  const sideToMove = job.fen.split(' ')[1]; // 'w' or 'b'
+  SF.current = {
+    fen: job.fen,
+    resolve: job.resolve,
+    latestCp: null,
+    latestMate: null,
+    sideToMove,
+    timer: null,
+  };
+  SF.engine.postMessage('position fen ' + job.fen);
+  SF.engine.postMessage('go movetime ' + SF.THINK_MS);
+  SF.current.timer = setTimeout(() => {
+    console.warn('[SF] hard timeout, forcing stop for fen', job.fen);
+    try { SF.engine.postMessage('stop'); } catch(e) {}
+    // bestmove should arrive shortly after stop. If not, force-finish.
+    setTimeout(() => { if (SF.current === SF.current) finishCurrent(); }, 200);
+  }, SF.HARD_TIMEOUT_MS);
+}
+
+/**
+ * Evaluate a FEN position. Returns eval in pawns, WHITE'S PERSPECTIVE.
+ * +2.5 = white up 2.5 pawns. -2.5 = black up 2.5 pawns.
+ * Resolves to 0 if engine unavailable.
+ */
+function sfEval(fen) {
   return new Promise((resolve) => {
-    if (!stockfish) {
-      // Simulate eval if stockfish not loaded
-      resolve(S.evalScore + (Math.random() * 0.6 - 0.3));
-      return;
-    }
-    evalResolve = resolve;
-    stockfish.postMessage('position fen ' + fen);
-    stockfish.postMessage('go movetime 100'); // 100ms think time
-    // Timeout fallback
-    setTimeout(() => { if(evalResolve){ evalResolve(S.evalScore); evalResolve=null; }}, 200);
+    if (!SF.engine) { resolve(0); return; }
+    SF.queue.push({ fen, resolve });
+    pumpQueue();
   });
 }
 
@@ -610,20 +684,18 @@ async function onSqClick(e) {
 }
 
 async function executeMyMove(from, to) {
-  const VALS2 = {p:1, n:3, b:3, r:5, q:9, k:0};
-  function materialNow() {
-    let score = 0;
-    'abcdefgh'.split('').forEach(f => {
-      for (let r=1;r<=8;r++) {
-        const p = S.chess.get(f+r);
-        if (p) score += (p.color==='w'?1:-1) * VALS2[p.type];
-      }
-    });
-    return score;
-  }
-  const evalBefore = materialNow();
+  const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
+  const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
 
-  // Make the move in chess.js
+  // BLUNDER_THRESHOLD: how many pawns (player-perspective) of eval drop = blunder.
+  // 2.0 is conservative. Lower to 1.5 once you're confident it's not noisy.
+  const BLUNDER_THRESHOLD = 2.0;
+
+  // ── 1. Eval BEFORE the move (position with my piece still on its original square)
+  const fenBefore = S.chess.fen();
+  const evalBeforeWhitePOV = await sfEval(fenBefore);
+
+  // ── 2. Make the move in chess.js
   const moveObj = S.chess.move({ from, to, promotion: 'q' });
   if (!moveObj) return;
 
@@ -640,79 +712,75 @@ async function executeMyMove(from, to) {
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
 
-  // Material-based eval (always works, no Stockfish needed for blunder detection)
-  const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
-  function materialScore(chess) {
-    let score = 0;
-    'abcdefgh'.split('').forEach(f => {
-      for (let r=1;r<=8;r++) {
-        const p = chess.get(f+r);
-        if (p) score += (p.color==='w'?1:-1) * VALS[p.type];
-      }
-    });
-    return score;
-  }
-  const evalAfter = materialScore(S.chess);
-  const rawDelta = evalAfter - evalBefore;
-  const delta = S.myColor === 'white' ? rawDelta : -rawDelta;
-  S.evalScore = evalAfter;
+  // ── 3. Eval AFTER the move
+  const fenAfter = S.chess.fen();
+  const evalAfterWhitePOV = await sfEval(fenAfter);
 
-  // BLUNDER DETECTION: check if opponent can capture our moved piece without losing equal value
-  let isClientBlunder = false;
-  let worstLoss = 0;
+  // ── 4. Convert to player perspective and compute drop.
+  // White wants eval to go UP. Black wants eval to go DOWN.
+  // So the "drop from my POV" is:
+  //   white: before - after  (positive = bad for white)
+  //   black: after - before  (positive = bad for black)
+  const evalDrop = S.myColor === 'white'
+    ? evalBeforeWhitePOV - evalAfterWhitePOV
+    : evalAfterWhitePOV - evalBeforeWhitePOV;
+
+  console.log('[SF]',
+    'before(W):', evalBeforeWhitePOV.toFixed(2),
+    'after(W):', evalAfterWhitePOV.toFixed(2),
+    'drop(me):', evalDrop.toFixed(2),
+    'myColor:', S.myColor);
+
+  // Store evalScore in white's POV (consistent for the UI bar)
+  S.evalScore = evalAfterWhitePOV;
+
+  const isClientBlunder = evalDrop >= BLUNDER_THRESHOLD;
+  const worstLoss = Math.max(0, evalDrop);
+
+  // ── 5. If blunder, try to build a human-readable explanation
   let blunderDetail = null;
-
-  try {
-    const sfEvalAfter = await getEval(S.chess.fen());
-    const myEvalAfter = -sfEvalAfter;
-    const myEvalBefore = S.evalScore || 0;
-    const evalDrop = myEvalBefore - myEvalAfter;
-    console.log('[STOCKFISH BLUNDER] before:', myEvalBefore.toFixed(2), 'after:', myEvalAfter.toFixed(2), 'drop:', evalDrop.toFixed(2));
-    isClientBlunder = evalDrop >= 1.5;
-    worstLoss = Math.max(0, evalDrop);
-    S.evalScore = myEvalAfter;
-
-    if (isClientBlunder) {
-      const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
-      const opponentMoves = S.chess.moves({ verbose: true });
-      const myPieceValue = VALS[moveObj.piece] || 0;
-      for (const om of opponentMoves) {
-        if (om.to === to && om.captured) {
-          const test = new Chess(S.chess.fen());
-          test.move({ from: om.from, to: om.to, promotion: 'q' });
-          const ourRecaptures = test.moves({ verbose: true }).filter(rm => rm.to === to && rm.captured);
-          blunderDetail = {
-            lostPiece: pieceNames[moveObj.piece] || moveObj.piece,
-            lostValue: myPieceValue,
-            attackerPiece: pieceNames[om.piece] || om.piece,
-            attackerFrom: om.from,
-            attackerTo: om.to,
-            defended: ourRecaptures.length > 0,
-            recaptureValue: ourRecaptures.length > 0 ? (VALS[om.piece] || 0) : 0,
-            netLoss: evalDrop.toFixed(1)
-          };
-          break;
-        }
-      }
-      if (!blunderDetail) {
+  if (isClientBlunder) {
+    const opponentMoves = S.chess.moves({ verbose: true });
+    const myPieceValue = VALS[moveObj.piece] || 0;
+    for (const om of opponentMoves) {
+      if (om.to === to && om.captured) {
+        const test = new Chess(S.chess.fen());
+        test.move({ from: om.from, to: om.to, promotion: 'q' });
+        const ourRecaptures = test.moves({ verbose: true }).filter(rm => rm.to === to && rm.captured);
         blunderDetail = {
-          lostPiece: 'positional advantage',
-          lostValue: evalDrop.toFixed(1) + ' pawns',
-          attackerPiece: 'opponent threat',
-          attackerFrom: '?',
-          attackerTo: '?',
-          defended: false,
-          recaptureValue: 0,
-          netLoss: evalDrop.toFixed(1),
-          positional: true
+          lostPiece: pieceNames[moveObj.piece] || moveObj.piece,
+          lostValue: myPieceValue,
+          attackerPiece: pieceNames[om.piece] || om.piece,
+          attackerFrom: om.from,
+          attackerTo: om.to,
+          defended: ourRecaptures.length > 0,
+          recaptureValue: ourRecaptures.length > 0 ? (VALS[om.piece] || 0) : 0,
+          netLoss: evalDrop.toFixed(1)
         };
+        break;
       }
     }
-  } catch (e) {
-    console.error('[STOCKFISH BLUNDER] error:', e);
+    if (!blunderDetail) {
+      blunderDetail = {
+        lostPiece: 'positional advantage',
+        lostValue: evalDrop.toFixed(1) + ' pawns',
+        attackerPiece: 'opponent threat',
+        attackerFrom: '?',
+        attackerTo: '?',
+        defended: false,
+        recaptureValue: 0,
+        netLoss: evalDrop.toFixed(1),
+        positional: true
+      };
+    }
   }
 
-  const quality = isClientBlunder ? 'blunder' : delta > 0.3 ? 'good' : delta < -0.3 ? 'inaccuracy' : '';
+  // For the move-log color: good/inaccuracy thresholds in player-POV pawns
+  const playerPovDelta = -evalDrop; // positive = good for me
+  const quality = isClientBlunder ? 'blunder'
+                : playerPovDelta > 0.3 ? 'good'
+                : playerPovDelta < -0.3 ? 'inaccuracy'
+                : '';
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
 
   // If it's a blunder, signal to server to end the game
@@ -751,13 +819,13 @@ async function executeMyMove(from, to) {
     updateCaptures();
   }
 
-  // Send to server
+  // Send to server (evals in WHITE'S perspective, pawns)
   wsSend({
     type: 'move',
     from, to,
     san: moveObj.san,
-    evalBefore,
-    evalAfter,
+    evalBefore: evalBeforeWhitePOV,
+    evalAfter: evalAfterWhitePOV,
   });
 
   // Check for checkmate/stalemate after our move
