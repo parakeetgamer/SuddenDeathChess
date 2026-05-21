@@ -233,6 +233,7 @@ function doBlunder(ws, msg) {
   const color = colorOf(session, ws);
   if (!color) return;
   console.log('[BLUNDER]', ws.player.username, 'lost', msg.worstLoss, 'on', msg.san);
+  session.blunderDetail = msg.detail || null;
   endGame(session, color === 'white' ? 'black' : 'white',
     ws.player.username + ' blundered — ' + msg.san);
 }
@@ -277,6 +278,7 @@ function endGame(session, winnerColor, reason) {
       type: 'game_over', reason,
       winner: winnerColor,
       winnerUsername: humanWon ? human.username : session.bot.name,
+      blunderDetail: session.blunderDetail || null,
       ratings: {
         white: { old: human.rating, new: newRating, delta },
         black: { old: session.bot.rating, new: session.bot.rating, delta: 0 }
@@ -307,6 +309,7 @@ function endGame(session, winnerColor, reason) {
       const result = {
         type: 'game_over', reason,
         winner: winnerColor, winnerUsername: winner.username,
+        blunderDetail: session.blunderDetail || null,
         ratings: {
           white: { old: winnerColor==='white'?wu.rating:lu.rating,
                    new: winnerColor==='white'?elo.winnerNew:elo.loserNew,

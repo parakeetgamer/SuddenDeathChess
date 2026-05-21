@@ -660,28 +660,35 @@ async function executeMyMove(from, to) {
   // BLUNDER DETECTION: check if opponent can capture our moved piece without losing equal value
   let isClientBlunder = false;
   let worstLoss = 0;
+  let blunderDetail = null;
   try {
-    const myColorChar = S.myColor[0];
     const opponentMoves = S.chess.moves({ verbose: true });
-    // Find any move where opponent captures our piece on the destination square
     for (const om of opponentMoves) {
       if (om.to === to && om.captured) {
-        // They capture what we just moved. What did we move?
         const myPieceValue = VALS[moveObj.piece] || 0;
-        // After they capture, can we recapture? Simulate it
         const test = new Chess(S.chess.fen());
         test.move({ from: om.from, to: om.to, promotion: 'q' });
         const ourRecaptures = test.moves({ verbose: true }).filter(rm => rm.to === to && rm.captured);
         let theirLoss = 0;
-        if (ourRecaptures.length > 0) {
-          theirLoss = VALS[om.piece] || 0;
-        }
+        if (ourRecaptures.length > 0) theirLoss = VALS[om.piece] || 0;
         const netLoss = myPieceValue - theirLoss;
-        if (netLoss > worstLoss) worstLoss = netLoss;
+        if (netLoss > worstLoss) {
+          worstLoss = netLoss;
+          // Capture rich info about WHY it was a blunder
+          const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
+          blunderDetail = {
+            lostPiece: pieceNames[moveObj.piece] || moveObj.piece,
+            lostValue: myPieceValue,
+            attackerPiece: pieceNames[om.piece] || om.piece,
+            attackerFrom: om.from,
+            attackerTo: om.to,
+            defended: ourRecaptures.length > 0,
+            recaptureValue: theirLoss,
+            netLoss: netLoss
+          };
+        }
       }
     }
-    // Also: did we move into a square where a pawn/piece can fork or attack us?
-    // Simple version: if any capture of our just-moved piece loses 1.5+ material net, it's a blunder
     isClientBlunder = worstLoss >= 1.5;
   } catch (e) {
     console.error('Blunder analysis error:', e);
@@ -693,7 +700,7 @@ async function executeMyMove(from, to) {
 
   // If it's a blunder, signal to server to end the game
   if (isClientBlunder) {
-    wsSend({ type: 'blunder', san: moveObj.san, worstLoss });
+    wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
     // Lock the board immediately — don't wait for server round-trip
     S.gameOver = true;
     stopLocalTimer();
@@ -705,6 +712,7 @@ async function executeMyMove(from, to) {
         onGameOver({
           type: 'game_over',
           reason: 'You blundered — ' + moveObj.san,
+          blunderDetail: blunderDetail,
           winner: S.myColor === 'white' ? 'black' : 'white',
           winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
           ratings: {
@@ -1039,6 +1047,28 @@ function onGameOver(msg) {
   setEl('m-title', iWon ? 'VICTORY' : 'DEFEATED');
   setCls('m-title', 'modal-title ' + (iWon?'win':'loss'));
   setEl('m-reason', msg.reason);
+
+  // Add detailed blunder explanation if available
+  const explainEl = document.getElementById('m-blunder-explain');
+  if (explainEl) explainEl.remove();
+  if (msg.blunderDetail) {
+    const d = msg.blunderDetail;
+    let html = '<div style="margin-top:16px;padding:14px 18px;background:rgba(225,29,46,0.08);border-left:3px solid #E11D2E;border-radius:4px;text-align:left;">';
+    html += '<div style="font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:3px;color:#E11D2E;text-transform:uppercase;margin-bottom:8px;">Why you lost</div>';
+    html += '<div style="font-size:16px;color:#F5F1EA;margin-bottom:4px;">You lost your <strong style="color:#FF7A1A;">' + d.lostPiece + '</strong> (' + d.lostValue + ' pts)</div>';
+    html += '<div style="font-size:13px;color:#A1A1AA;">Captured by the ' + d.attackerPiece + ' on ' + d.attackerFrom + '</div>';
+    if (!d.defended) {
+      html += '<div style="font-size:13px;color:#A1A1AA;margin-top:6px;">Your piece was undefended.</div>';
+    } else {
+      html += '<div style="font-size:13px;color:#A1A1AA;margin-top:6px;">You could recapture for ' + d.recaptureValue + ' pts, but still lose ' + d.netLoss + ' material.</div>';
+    }
+    html += '</div>';
+    const wrapper = document.createElement('div');
+    wrapper.id = 'm-blunder-explain';
+    wrapper.innerHTML = html;
+    const reasonEl = document.getElementById('m-reason');
+    if (reasonEl && reasonEl.parentNode) reasonEl.parentNode.insertBefore(wrapper, reasonEl.nextSibling);
+  }
   setEl('m-r-old', myRatings.old);
   setEl('m-r-new', myRatings.new);
   setEl('m-r-delta', (myRatings.delta >= 0 ? '+' : '') + myRatings.delta);
