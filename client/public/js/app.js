@@ -84,20 +84,19 @@ const SF = {
 
 function initStockfish() {
   try {
-    if (typeof Stockfish === 'undefined') {
-      console.warn('[SF] Stockfish global not found, evals will be 0');
-      return;
-    }
-    SF.engine = Stockfish();
+    SF.engine = new Worker('/js/stockfish.js');
     SF.engine.onmessage = onStockfishMessage;
+    SF.engine.onerror = (e) => console.error('[SF] worker error:', e.message || e);
     SF.engine.postMessage('uci');
     SF.engine.postMessage('setoption name MultiPV value 1');
     SF.engine.postMessage('setoption name Threads value 1');
     SF.engine.postMessage('setoption name Hash value 16');
     SF.engine.postMessage('ucinewgame');
     SF.engine.postMessage('isready');
+    console.log('[SF] worker created');
   } catch(e) {
     console.error('[SF] init failed:', e);
+    SF.engine = null;
   }
 }
 
