@@ -661,21 +661,26 @@ async function executeMyMove(from, to) {
   let isClientBlunder = false;
   let worstLoss = 0;
   let blunderDetail = null;
+
   try {
-    const opponentMoves = S.chess.moves({ verbose: true });
-    for (const om of opponentMoves) {
-      if (om.to === to && om.captured) {
-        const myPieceValue = VALS[moveObj.piece] || 0;
-        const test = new Chess(S.chess.fen());
-        test.move({ from: om.from, to: om.to, promotion: 'q' });
-        const ourRecaptures = test.moves({ verbose: true }).filter(rm => rm.to === to && rm.captured);
-        let theirLoss = 0;
-        if (ourRecaptures.length > 0) theirLoss = VALS[om.piece] || 0;
-        const netLoss = myPieceValue - theirLoss;
-        if (netLoss > worstLoss) {
-          worstLoss = netLoss;
-          // Capture rich info about WHY it was a blunder
-          const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
+    const sfEvalAfter = await getEval(S.chess.fen());
+    const myEvalAfter = -sfEvalAfter;
+    const myEvalBefore = S.evalScore || 0;
+    const evalDrop = myEvalBefore - myEvalAfter;
+    console.log('[STOCKFISH BLUNDER] before:', myEvalBefore.toFixed(2), 'after:', myEvalAfter.toFixed(2), 'drop:', evalDrop.toFixed(2));
+    isClientBlunder = evalDrop >= 1.5;
+    worstLoss = Math.max(0, evalDrop);
+    S.evalScore = myEvalAfter;
+
+    if (isClientBlunder) {
+      const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
+      const opponentMoves = S.chess.moves({ verbose: true });
+      const myPieceValue = VALS[moveObj.piece] || 0;
+      for (const om of opponentMoves) {
+        if (om.to === to && om.captured) {
+          const test = new Chess(S.chess.fen());
+          test.move({ from: om.from, to: om.to, promotion: 'q' });
+          const ourRecaptures = test.moves({ verbose: true }).filter(rm => rm.to === to && rm.captured);
           blunderDetail = {
             lostPiece: pieceNames[moveObj.piece] || moveObj.piece,
             lostValue: myPieceValue,
@@ -683,17 +688,29 @@ async function executeMyMove(from, to) {
             attackerFrom: om.from,
             attackerTo: om.to,
             defended: ourRecaptures.length > 0,
-            recaptureValue: theirLoss,
-            netLoss: netLoss
+            recaptureValue: ourRecaptures.length > 0 ? (VALS[om.piece] || 0) : 0,
+            netLoss: evalDrop.toFixed(1)
           };
+          break;
         }
       }
+      if (!blunderDetail) {
+        blunderDetail = {
+          lostPiece: 'positional advantage',
+          lostValue: evalDrop.toFixed(1) + ' pawns',
+          attackerPiece: 'opponent threat',
+          attackerFrom: '?',
+          attackerTo: '?',
+          defended: false,
+          recaptureValue: 0,
+          netLoss: evalDrop.toFixed(1),
+          positional: true
+        };
+      }
     }
-    isClientBlunder = worstLoss >= 1.5;
   } catch (e) {
-    console.error('Blunder analysis error:', e);
+    console.error('[STOCKFISH BLUNDER] error:', e);
   }
-  console.log('[BLUNDER CHECK] worstLoss:', worstLoss, 'isBlunder:', isClientBlunder, 'delta:', delta);
 
   const quality = isClientBlunder ? 'blunder' : delta > 0.3 ? 'good' : delta < -0.3 ? 'inaccuracy' : '';
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
