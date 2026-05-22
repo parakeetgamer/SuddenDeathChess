@@ -120,9 +120,12 @@ function sfFinishHandshake() {
   SF.engine.postMessage('setoption name MultiPV value 1');
   SF.engine.postMessage('setoption name Threads value 1');
   SF.engine.postMessage('setoption name Hash value 16');
-  SF.engine.postMessage('ucinewgame');
-  SF.engine.postMessage('isready');
+  // NO ucinewgame — it triggers an async hash-clear in this asm.js build that
+  // jams the engine so it never responds again. uciok already proves the
+  // engine is live, so mark ready now and start the queue.
+  SF.ready = true;
   console.log('[SF] handshake complete, engine ready');
+  pumpQueue();
 }
 
 function onStockfishMessage(event) {
@@ -139,11 +142,6 @@ function onStockfishMessage(event) {
 
   if (msg.startsWith('uciok')) {
     if (!SF._gotUciok) { SF._gotUciok = true; sfFinishHandshake(); }
-    return;
-  }
-  if (msg === 'readyok') {
-    SF.ready = true;
-    pumpQueue();
     return;
   }
 
@@ -210,11 +208,12 @@ function pumpQueue() {
   };
   SF.engine.postMessage('position fen ' + job.fen);
   SF.engine.postMessage('go movetime ' + (job.movetime || SF.THINK_MS));
+  const thisJob = SF.current;
   SF.current.timer = setTimeout(() => {
     console.warn('[SF] hard timeout, forcing stop for fen', job.fen);
     try { SF.engine.postMessage('stop'); } catch(e) {}
     // bestmove should arrive shortly after stop. If not, force-finish.
-    setTimeout(() => { if (SF.current === SF.current) finishCurrent(); }, 200);
+    setTimeout(() => { if (SF.current === thisJob) finishCurrent(); }, 200);
   }, SF.HARD_TIMEOUT_MS);
 }
 
