@@ -106,6 +106,7 @@ function initStockfish() {
 function onStockfishMessage(event) {
   const msg = typeof event === 'string' ? event : event.data;
   if (!msg) return;
+  if (window._sfDebug) console.log('[SF raw]', msg);
 
   if (msg === 'readyok' || msg.startsWith('uciok')) {
     SF.ready = true;
