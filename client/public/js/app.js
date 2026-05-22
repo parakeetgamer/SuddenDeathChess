@@ -171,7 +171,7 @@ function pumpQueue() {
     timer: null,
   };
   SF.engine.postMessage('position fen ' + job.fen);
-  SF.engine.postMessage('go movetime ' + SF.THINK_MS);
+  SF.engine.postMessage('go movetime ' + (job.movetime || SF.THINK_MS));
   SF.current.timer = setTimeout(() => {
     console.warn('[SF] hard timeout, forcing stop for fen', job.fen);
     try { SF.engine.postMessage('stop'); } catch(e) {}
@@ -185,13 +185,16 @@ function pumpQueue() {
  * +2.5 = white up 2.5 pawns. -2.5 = black up 2.5 pawns.
  * Resolves to 0 if engine unavailable.
  */
-function sfEval(fen) {
+function sfEval(fen, movetime) {
   return new Promise((resolve) => {
     if (!SF.engine) { resolve(0); return; }
-    SF.queue.push({ fen, resolve });
+    SF.queue.push({ fen, resolve, movetime });
     pumpQueue();
   });
 }
+
+// Fast, shallow eval used to calibrate the shake intensity the instant a move lands.
+function sfEvalShallow(fen) { return sfEval(fen, 150); }
 
 // Drop-stale variant: clears any QUEUED (not-yet-running) jobs first, so we
 // only ever evaluate the newest position the player cares about.
@@ -697,50 +700,81 @@ async function onSqClick(e) {
 }
 
 // ══════════════════════════════════════════
-// SUSPENSE BEAT (the "am I dead?" moment)
+// SUSPENSE BEAT — the moved piece shakes/swells, then defuses or explodes
 // ══════════════════════════════════════════
 let _suspenseHeart = null;
-let _suspenseStart = 0;
+let _judgeSq = null;
 
-function startSuspense() {
-  _suspenseStart = Date.now();
+function judgingPieceEl() {
+  if (!_judgeSq) return null;
+  const sq = document.querySelector('#board [data-sq="' + _judgeSq + '"]');
+  return sq ? sq.querySelector('img.piece') : null;
+}
 
-  // Dim overlay
+function setShakeIntensity(danger) {
+  // danger 0..1 → drives the CSS --shake variable on the moved piece
+  const el = judgingPieceEl();
+  if (el) el.style.setProperty('--shake', danger.toFixed(3));
+}
+
+function startSuspense(toSquare) {
+  _judgeSq = toSquare;
+
+  // Dim overlay behind the board (no center text — the piece is the focus)
   let ov = document.getElementById('suspense-overlay');
   if (!ov) {
     ov = document.createElement('div');
     ov.id = 'suspense-overlay';
-    ov.innerHTML = '<div class="suspense-label">JUDGING</div>';
     document.body.appendChild(ov);
   }
   ov.classList.remove('reveal-safe','reveal-blunder');
   ov.classList.add('show');
 
-  // Board gets a tense ring
-  const board = document.getElementById('board');
-  if (board) board.classList.add('judging');
+  // The piece begins to tremble (starts at low intensity until shallow eval calibrates)
+  const el = judgingPieceEl();
+  if (el) {
+    el.style.setProperty('--shake', '0.12');
+    el.classList.add('judging-piece');
+  }
 
-  // Danger meter spikes into the red zone while we wait
-  const bm = document.getElementById('bm-fill');
-  if (bm) { bm.style.width = '72%'; bm.classList.add('danger'); }
-
-  // Heartbeat — accelerating thump
-  let beat = 0;
+  // Heartbeat
   sndHeart();
-  _suspenseHeart = setInterval(() => {
-    beat++;
-    sndHeart();
-  }, 560);
+  _suspenseHeart = setInterval(sndHeart, 460);
 }
 
 function stopSuspense() {
   if (_suspenseHeart) { clearInterval(_suspenseHeart); _suspenseHeart = null; }
   const ov = document.getElementById('suspense-overlay');
   if (ov) ov.classList.remove('show');
-  const board = document.getElementById('board');
-  if (board) board.classList.remove('judging');
-  const bm = document.getElementById('bm-fill');
-  if (bm) { bm.classList.remove('danger'); bm.style.width = '0%'; }
+  const el = judgingPieceEl();
+  if (el) { el.classList.remove('judging-piece'); el.style.removeProperty('--shake'); }
+}
+
+// Spawn the particle/shockwave explosion on the blundered square.
+function explodePiece(toSquare) {
+  const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
+  if (!sq) return;
+  const piece = sq.querySelector('img.piece');
+  if (piece) piece.classList.add('exploding-piece');
+
+  const burst = document.createElement('div');
+  burst.className = 'explosion';
+  const ring = document.createElement('div');
+  ring.className = 'shockwave';
+  burst.appendChild(ring);
+  const N = 11;
+  for (let i = 0; i < N; i++) {
+    const sh = document.createElement('div');
+    sh.className = 'shard';
+    const ang = (i / N) * Math.PI * 2 + Math.random() * 0.4;
+    const dist = 38 + Math.random() * 34;
+    sh.style.setProperty('--dx', (Math.cos(ang) * dist).toFixed(1) + 'px');
+    sh.style.setProperty('--dy', (Math.sin(ang) * dist).toFixed(1) + 'px');
+    sh.style.setProperty('--rot', (Math.random() * 360).toFixed(0) + 'deg');
+    burst.appendChild(sh);
+  }
+  sq.appendChild(burst);
+  setTimeout(() => { burst.remove(); if (piece) piece.classList.remove('exploding-piece'); }, 1100);
 }
 
 async function executeMyMove(from, to) {
@@ -775,19 +809,30 @@ async function executeMyMove(from, to) {
     updateCaptures();
   }
 
-  // ── 3. Enter the JUDGING beat. Board is locked; suspense UI runs while
-  //       Stockfish evaluates the resulting position in the background.
+  // ── 3. Enter the JUDGING beat. Board is locked. The moved piece shakes,
+  //       intensity calibrated by a fast shallow eval, while the deep eval
+  //       determines the real verdict.
   S.judging = true;
-  startSuspense();
-
   const fenAfter = S.chess.fen();
+  startSuspense(to);
+
+  // Fast shallow eval (~150ms) → calibrate shake to how close this looks to a blunder.
+  sfEvalShallow(fenAfter).then(shallowWhitePOV => {
+    if (!S.judging) return; // verdict already landed
+    const shallowDrop = S.myColor === 'white'
+      ? evalBeforeWhitePOV - shallowWhitePOV
+      : shallowWhitePOV - evalBeforeWhitePOV;
+    const danger = Math.max(0, Math.min(1, shallowDrop / 2.0));
+    setShakeIntensity(danger);
+  }).catch(()=>{});
+
+  // Deep eval (~700ms) = the real verdict. Beat is at least MIN_BEAT_MS.
   const MIN_BEAT_MS = 650;
   const [evalAfterWhitePOV] = await Promise.all([
-    sfEvalLatest(fenAfter),
+    sfEval(fenAfter),
     new Promise(res => setTimeout(res, MIN_BEAT_MS)),
   ]);
 
-  stopSuspense();
   S.judging = false;
 
   // ── 4. Verdict.
@@ -818,7 +863,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
   // move-log color
   const playerPovDelta = -evalDrop;
   const quality = isClientBlunder ? 'blunder'
-                : playerPovDelta > 0.3 ? 'good'
+                : playerPovDelta > 0.8 ? 'good'
                 : playerPovDelta < -0.3 ? 'inaccuracy'
                 : '';
   S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
@@ -862,6 +907,8 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
     S.gameOver = true;
     stopLocalTimer();
+    stopSuspense();
+    explodePiece(to);
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
     // Dramatic red reveal
@@ -909,6 +956,24 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
   }
 
   // ════════════ SAFE ════════════
+  stopSuspense();
+  // Quick green pulse on the square you survived
+  const safeSq = document.querySelector('#board [data-sq="' + to + '"]');
+  if (safeSq) {
+    safeSq.classList.add('verdict-safe');
+    setTimeout(() => safeSq.classList.remove('verdict-safe'), 600);
+  }
+  // Genuinely good move (eval gained ≥0.8) gets a reward flash
+  if (quality === 'good') {
+    sndGood();
+    const flash = document.createElement('div'); flash.className = 'good-flash';
+    document.body.appendChild(flash);
+    const gt = document.createElement('div'); gt.className = 'good-text';
+    gt.textContent = moveObj.captured ? 'NICE TAKE' : 'GOOD MOVE';
+    document.body.appendChild(gt);
+    setTimeout(() => { flash.remove(); gt.remove(); }, 1000);
+  }
+
   // You survived. Send the move to the server now (held until verdict so the
   // opponent never sees a move that turns out to be fatal).
   wsSend({
