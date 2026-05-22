@@ -122,7 +122,7 @@ function onStockfishMessage(event) {
 
   if (!SF.current) return;
 
-  if (msg.startsWith('info') && msg.includes(' pv ')) {
+  if (msg.startsWith('info') && msg.includes('score')) {
     // Track latest score during search
     const depthMatch = msg.match(/ depth (\d+)/);
     if (depthMatch) SF.current.latestDepth = parseInt(depthMatch[1]);
