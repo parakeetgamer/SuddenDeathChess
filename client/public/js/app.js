@@ -76,173 +76,105 @@ const PIECE_SVG = {
 // Returns evals in WHITE'S PERSPECTIVE always.
 // +N means white is up N pawns. -N means black is up.
 // Internally handles the side-to-move flip that UCI reports.
-const SF = {
-  engine: null,
-  ready: false,
-  queue: [],
-  current: null,   // { fen, resolve, latestCp, latestMate, sideToMove, timer }
-  THINK_MS: 700,
-  HARD_TIMEOUT_MS: 1500,
-};
+// ══════════════════════════════════════════
+// STOCKFISH — fresh worker per evaluation
+// ══════════════════════════════════════════
+// A persistent shared worker proved impossible to keep alive in this app
+// (engine went mute after the first handshake). Instead we spin up a brand-new
+// Worker for every eval — which is proven reliable — and terminate it when done.
+// Returns eval in pawns, WHITE'S PERSPECTIVE. Resolves 0 on any failure.
 
-function initStockfish() {
-  try {
-    SF.engine = new Worker('/js/stockfish.js');
-    SF.engine.onmessage = onStockfishMessage;
-    SF.engine.onerror = (e) => console.error('[SF] worker error:', e && (e.message||e.filename), e && e.lineno);
-    SF.engine.onmessageerror = (e) => console.error('[SF] messageerror:', e);
-    SF._initialized = false;
-    console.log('[SF] worker created, waiting for engine to wake up...');
-    // DO NOT send any commands yet. The asm.js engine crashes if it receives
-    // UCI commands before its runtime is ready. We wait for its first message
-    // (the greeting line) and send the handshake from inside onStockfishMessage.
-  } catch(e) {
-    console.error('[SF] init failed:', e);
-    SF.engine = null;
-  }
-}
+const SF = { THINK_MS: 700 };
 
-function sfSendHandshake() {
-  // Retry 'uci' until the engine answers 'uciok' — the only proof its
-  // runtime is actually alive. Early commands get silently dropped while
-  // the asm.js module is still compiling, so we poll.
-  let tries = 0;
-  SF._uciTimer = setInterval(() => {
-    if (SF._gotUciok || tries > 30) { clearInterval(SF._uciTimer); return; }
-    tries++;
-    console.log('[SF] handshake attempt', tries);
-    SF.engine.postMessage('uci');
-  }, 400);
-}
+function initStockfish() { /* no-op: workers are created per eval now */ }
 
-function sfFinishHandshake() {
-  if (SF._uciTimer) { clearInterval(SF._uciTimer); SF._uciTimer = null; }
-  SF.engine.postMessage('setoption name MultiPV value 1');
-  SF.engine.postMessage('setoption name Threads value 1');
-  SF.engine.postMessage('setoption name Hash value 16');
-  // NO ucinewgame — it triggers an async hash-clear in this asm.js build that
-  // jams the engine so it never responds again. uciok already proves the
-  // engine is live, so mark ready now and start the queue.
-  SF.ready = true;
-  console.log('[SF] handshake complete, engine ready');
-  pumpQueue();
-}
-
-function onStockfishMessage(event) {
-  const msg = typeof event === 'string' ? event : event.data;
-  if (!msg) return;
-  if (window._sfDebug) console.log('[SF raw]', msg);
-
-  // First message = engine runtime is ready. NOW send the handshake.
-  if (!SF._initialized) {
-    SF._initialized = true;
-    sfSendHandshake();
-    // fall through — this same message might be 'uciok'
-  }
-
-  if (msg.startsWith('uciok')) {
-    if (!SF._gotUciok) { SF._gotUciok = true; sfFinishHandshake(); }
-    return;
-  }
-
-  if (!SF.current) return;
-
-  if (msg.startsWith('info') && msg.includes('score')) {
-    // Track latest score during search
-    const depthMatch = msg.match(/ depth (\d+)/);
-    if (depthMatch) SF.current.latestDepth = parseInt(depthMatch[1]);
-    const mateMatch = msg.match(/score mate (-?\d+)/);
-    const cpMatch = msg.match(/score cp (-?\d+)/);
-    if (mateMatch) {
-      SF.current.latestMate = parseInt(mateMatch[1]);
-      SF.current.latestCp = null;
-    } else if (cpMatch) {
-      SF.current.latestCp = parseInt(cpMatch[1]);
-      SF.current.latestMate = null;
-    }
-    return;
-  }
-
-  if (msg.startsWith('bestmove')) {
-    finishCurrent();
-    return;
-  }
-}
-
-function finishCurrent() {
-  if (!SF.current) return;
-  const c = SF.current;
-  SF.current = null;
-  if (c.timer) clearTimeout(c.timer);
-
-  // Convert side-to-move-perspective into white-perspective
-  let whiteCp;
-  if (c.latestMate !== null && c.latestMate !== undefined) {
-    // mate N from side-to-move's POV. +mate for stm = stm wins.
-    // Treat mate as ±100 pawns so it dominates blunder math.
-    const mateForStm = c.latestMate > 0 ? 100 : -100;
-    whiteCp = c.sideToMove === 'w' ? mateForStm * 100 : -mateForStm * 100;
-  } else if (c.latestCp !== null && c.latestCp !== undefined) {
-    whiteCp = c.sideToMove === 'w' ? c.latestCp : -c.latestCp;
-  } else {
-    whiteCp = 0;
-  }
-
-  console.log('[SF] depth', c.latestDepth || '?', 'eval(W):', (whiteCp/100).toFixed(2));
-  c.resolve(whiteCp / 100); // pawns, white POV
-  pumpQueue();
-}
-
-function pumpQueue() {
-  if (!SF.ready || SF.current || SF.queue.length === 0) return;
-  const job = SF.queue.shift();
-  const sideToMove = job.fen.split(' ')[1]; // 'w' or 'b'
-  SF.current = {
-    fen: job.fen,
-    resolve: job.resolve,
-    latestCp: null,
-    latestMate: null,
-    latestDepth: 0,
-    sideToMove,
-    timer: null,
-  };
-  SF.engine.postMessage('position fen ' + job.fen);
-  SF.engine.postMessage('go movetime ' + (job.movetime || SF.THINK_MS));
-  const thisJob = SF.current;
-  SF.current.timer = setTimeout(() => {
-    console.warn('[SF] hard timeout, forcing stop for fen', job.fen);
-    try { SF.engine.postMessage('stop'); } catch(e) {}
-    // bestmove should arrive shortly after stop. If not, force-finish.
-    setTimeout(() => { if (SF.current === thisJob) finishCurrent(); }, 200);
-  }, SF.HARD_TIMEOUT_MS);
-}
-
-/**
- * Evaluate a FEN position. Returns eval in pawns, WHITE'S PERSPECTIVE.
- * +2.5 = white up 2.5 pawns. -2.5 = black up 2.5 pawns.
- * Resolves to 0 if engine unavailable.
- */
 function sfEval(fen, movetime) {
   return new Promise((resolve) => {
-    if (!SF.engine) { resolve(0); return; }
-    SF.queue.push({ fen, resolve, movetime });
-    pumpQueue();
+    let worker;
+    try {
+      worker = new Worker('/js/stockfish.js');
+    } catch (e) {
+      console.error('[SF] worker create failed:', e);
+      resolve(0);
+      return;
+    }
+
+    const sideToMove = fen.split(' ')[1]; // 'w' or 'b'
+    let latestCp = null, latestMate = null, latestDepth = 0;
+    let gotUciok = false, done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(hardTimer);
+      try { worker.terminate(); } catch (e) {}
+
+      let whiteCp;
+      if (latestMate !== null) {
+        const mateForStm = latestMate > 0 ? 100 : -100;
+        whiteCp = sideToMove === 'w' ? mateForStm * 100 : -mateForStm * 100;
+      } else if (latestCp !== null) {
+        whiteCp = sideToMove === 'w' ? latestCp : -latestCp;
+      } else {
+        whiteCp = 0;
+      }
+      console.log('[SF] depth', latestDepth || '?', 'eval(W):', (whiteCp/100).toFixed(2));
+      resolve(whiteCp / 100);
+    };
+
+    worker.onmessage = (event) => {
+      const msg = typeof event === 'string' ? event : event.data;
+      if (!msg || typeof msg !== 'string') return;
+      if (window._sfDebug) console.log('[SF raw]', msg);
+
+      if (!gotUciok) {
+        if (msg.startsWith('uciok')) {
+          gotUciok = true;
+          worker.postMessage('setoption name MultiPV value 1');
+          worker.postMessage('position fen ' + fen);
+          worker.postMessage('go movetime ' + (movetime || SF.THINK_MS));
+        }
+        return;
+      }
+
+      if (msg.startsWith('info') && msg.includes('score')) {
+        const d = msg.match(/ depth (\d+)/);
+        if (d) latestDepth = parseInt(d[1]);
+        const m = msg.match(/score mate (-?\d+)/);
+        const c = msg.match(/score cp (-?\d+)/);
+        if (m) { latestMate = parseInt(m[1]); latestCp = null; }
+        else if (c) { latestCp = parseInt(c[1]); latestMate = null; }
+        return;
+      }
+
+      if (msg.startsWith('bestmove')) {
+        finish();
+      }
+    };
+
+    worker.onerror = (e) => { console.error('[SF] worker error:', e && e.message); finish(); };
+
+    // Kick off the handshake. Poll uci until uciok (engine drops early commands).
+    let tries = 0;
+    const pollUci = setInterval(() => {
+      if (gotUciok || done || tries > 25) { clearInterval(pollUci); return; }
+      tries++;
+      worker.postMessage('uci');
+    }, 250);
+
+    // Hard timeout: whatever we have, resolve and clean up.
+    const hardTimer = setTimeout(() => {
+      clearInterval(pollUci);
+      console.warn('[SF] hard timeout for fen', fen);
+      finish();
+    }, (movetime || SF.THINK_MS) + 2500);
   });
 }
 
-// Fast, shallow eval used to calibrate the shake intensity the instant a move lands.
 function sfEvalShallow(fen) { return sfEval(fen, 150); }
 
-// Drop-stale variant: clears any QUEUED (not-yet-running) jobs first, so we
-// only ever evaluate the newest position the player cares about.
-function sfEvalLatest(fen) {
-  // Resolve any abandoned queued jobs to 0 so their awaiters don't hang
-  while (SF.queue.length) {
-    const stale = SF.queue.shift();
-    try { stale.resolve(0); } catch(e) {}
-  }
-  return sfEval(fen);
-}
+// No queue to clear anymore — each eval is independent. Kept for call-site compat.
+function sfEvalLatest(fen) { return sfEval(fen); }
 
 // ══════════════════════════════════════════
 // WEBSOCKET
