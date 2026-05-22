@@ -89,30 +89,40 @@ function initStockfish() {
   try {
     SF.engine = new Worker('/js/stockfish.js');
     SF.engine.onmessage = onStockfishMessage;
-    SF.engine.onerror = (e) => {
-      console.error('[SF] worker error EVENT:', e);
-      console.error('[SF] msg:', e && e.message, '| file:', e && e.filename, '| line:', e && e.lineno, '| col:', e && e.colno);
-      try { e.preventDefault(); } catch(_){}
-    };
+    SF.engine.onerror = (e) => console.error('[SF] worker error:', e && (e.message||e.filename), e && e.lineno);
     SF.engine.onmessageerror = (e) => console.error('[SF] messageerror:', e);
-    console.log('[SF] worker object:', SF.engine);
-    SF.engine.postMessage('uci');
-    SF.engine.postMessage('setoption name MultiPV value 1');
-    SF.engine.postMessage('setoption name Threads value 1');
-    SF.engine.postMessage('setoption name Hash value 16');
-    SF.engine.postMessage('ucinewgame');
-    SF.engine.postMessage('isready');
-    console.log('[SF] worker created');
+    SF._initialized = false;
+    console.log('[SF] worker created, waiting for engine to wake up...');
+    // DO NOT send any commands yet. The asm.js engine crashes if it receives
+    // UCI commands before its runtime is ready. We wait for its first message
+    // (the greeting line) and send the handshake from inside onStockfishMessage.
   } catch(e) {
     console.error('[SF] init failed:', e);
     SF.engine = null;
   }
 }
 
+function sfSendHandshake() {
+  console.log('[SF] engine awake — sending handshake');
+  SF.engine.postMessage('uci');
+  SF.engine.postMessage('setoption name MultiPV value 1');
+  SF.engine.postMessage('setoption name Threads value 1');
+  SF.engine.postMessage('setoption name Hash value 16');
+  SF.engine.postMessage('ucinewgame');
+  SF.engine.postMessage('isready');
+}
+
 function onStockfishMessage(event) {
   const msg = typeof event === 'string' ? event : event.data;
   if (!msg) return;
   if (window._sfDebug) console.log('[SF raw]', msg);
+
+  // First message = engine runtime is ready. NOW send the handshake.
+  if (!SF._initialized) {
+    SF._initialized = true;
+    sfSendHandshake();
+    return;
+  }
 
   if (msg === 'readyok' || msg.startsWith('uciok')) {
     SF.ready = true;
