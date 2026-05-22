@@ -89,7 +89,13 @@ function initStockfish() {
   try {
     SF.engine = new Worker('/js/stockfish.js');
     SF.engine.onmessage = onStockfishMessage;
-    SF.engine.onerror = (e) => console.error('[SF] worker error:', e.message || e);
+    SF.engine.onerror = (e) => {
+      console.error('[SF] worker error EVENT:', e);
+      console.error('[SF] msg:', e && e.message, '| file:', e && e.filename, '| line:', e && e.lineno, '| col:', e && e.colno);
+      try { e.preventDefault(); } catch(_){}
+    };
+    SF.engine.onmessageerror = (e) => console.error('[SF] messageerror:', e);
+    console.log('[SF] worker object:', SF.engine);
     SF.engine.postMessage('uci');
     SF.engine.postMessage('setoption name MultiPV value 1');
     SF.engine.postMessage('setoption name Threads value 1');
