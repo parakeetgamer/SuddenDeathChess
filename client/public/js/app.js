@@ -20,6 +20,7 @@ const sndGood    = () => { tone(660,'sine',.08,.16,.01,.1); setTimeout(()=>tone(
 const sndBlunder = () => { tone(220,'sawtooth',.15,.22,.01,.2); setTimeout(()=>tone(165,'sawtooth',.2,.22,.01,.25),100); setTimeout(()=>tone(110,'sawtooth',.3,.18,.01,.35),220); };
 const sndWin     = () => [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.15,.18,.01,.12),i*100));
 const sndTick    = () => tone(800,'square',.02,.07,.002,.02);
+const sndHeart   = () => { tone(70,'sine',.10,.30,.005,.10); setTimeout(()=>tone(55,'sine',.13,.26,.005,.13),140); };
 
 // ══════════════════════════════════════════
 // STATE
@@ -37,6 +38,8 @@ const S = {
   capturedMe: [], capturedOpp: [],
   evalScore: 0,
   gameOver: false,
+  judging: false,        // true during the suspense/verdict beat
+  preMoveEval: null,     // cached white-POV eval of position before my move
   timerVal: 10,
   localTimerInterval: null,
   moveTimings: [],
@@ -78,7 +81,7 @@ const SF = {
   ready: false,
   queue: [],
   current: null,   // { fen, resolve, latestCp, latestMate, sideToMove, timer }
-  THINK_MS: 600,
+  THINK_MS: 700,
   HARD_TIMEOUT_MS: 1500,
 };
 
@@ -188,6 +191,17 @@ function sfEval(fen) {
     SF.queue.push({ fen, resolve });
     pumpQueue();
   });
+}
+
+// Drop-stale variant: clears any QUEUED (not-yet-running) jobs first, so we
+// only ever evaluate the newest position the player cares about.
+function sfEvalLatest(fen) {
+  // Resolve any abandoned queued jobs to 0 so their awaiters don't hang
+  while (SF.queue.length) {
+    const stale = SF.queue.shift();
+    try { stale.resolve(0); } catch(e) {}
+  }
+  return sfEval(fen);
 }
 
 // ══════════════════════════════════════════
@@ -682,19 +696,63 @@ async function onSqClick(e) {
   renderBoard();
 }
 
+// ══════════════════════════════════════════
+// SUSPENSE BEAT (the "am I dead?" moment)
+// ══════════════════════════════════════════
+let _suspenseHeart = null;
+let _suspenseStart = 0;
+
+function startSuspense() {
+  _suspenseStart = Date.now();
+
+  // Dim overlay
+  let ov = document.getElementById('suspense-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'suspense-overlay';
+    ov.innerHTML = '<div class="suspense-label">JUDGING</div>';
+    document.body.appendChild(ov);
+  }
+  ov.classList.remove('reveal-safe','reveal-blunder');
+  ov.classList.add('show');
+
+  // Board gets a tense ring
+  const board = document.getElementById('board');
+  if (board) board.classList.add('judging');
+
+  // Danger meter spikes into the red zone while we wait
+  const bm = document.getElementById('bm-fill');
+  if (bm) { bm.style.width = '72%'; bm.classList.add('danger'); }
+
+  // Heartbeat — accelerating thump
+  let beat = 0;
+  sndHeart();
+  _suspenseHeart = setInterval(() => {
+    beat++;
+    sndHeart();
+  }, 560);
+}
+
+function stopSuspense() {
+  if (_suspenseHeart) { clearInterval(_suspenseHeart); _suspenseHeart = null; }
+  const ov = document.getElementById('suspense-overlay');
+  if (ov) ov.classList.remove('show');
+  const board = document.getElementById('board');
+  if (board) board.classList.remove('judging');
+  const bm = document.getElementById('bm-fill');
+  if (bm) { bm.classList.remove('danger'); bm.style.width = '0%'; }
+}
+
 async function executeMyMove(from, to) {
-  const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
-  const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
+  if (S.judging || S.gameOver) return;   // can't move during a verdict
 
-  // BLUNDER_THRESHOLD: how many pawns (player-perspective) of eval drop = blunder.
-  // 2.0 is conservative. Lower to 1.5 once you're confident it's not noisy.
-  const BLUNDER_THRESHOLD = 2.0;
-
-  // ── 1. Eval BEFORE the move (position with my piece still on its original square)
+  // ── 1. Eval BEFORE the move. Prefer the cached pre-eval computed during
+  //       the opponent's turn; fall back to a fresh eval if not ready.
   const fenBefore = S.chess.fen();
-  const evalBeforeWhitePOV = await sfEval(fenBefore);
+  let evalBeforeWhitePOV = (S.preMoveEval !== null) ? S.preMoveEval : await sfEval(fenBefore);
+  S.preMoveEval = null;
 
-  // ── 2. Make the move in chess.js
+  // ── 2. Make the move in chess.js — INSTANT, no awaiting the engine.
   const moveObj = S.chess.move({ from, to, promotion: 'q' });
   if (!moveObj) return;
 
@@ -710,35 +768,67 @@ async function executeMyMove(from, to) {
 
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
+  S.selected = null; S.legalMoves = [];
+  renderBoard();
+  if (moveObj.captured) {
+    S.capturedMe.push((S.myColor==='white'?'b':'w') + moveObj.captured.toUpperCase());
+    updateCaptures();
+  }
 
-  // ── 3. Eval AFTER the move
+  // ── 3. Enter the JUDGING beat. Board is locked; suspense UI runs while
+  //       Stockfish evaluates the resulting position in the background.
+  S.judging = true;
+  startSuspense();
+
   const fenAfter = S.chess.fen();
-  const evalAfterWhitePOV = await sfEval(fenAfter);
+  const MIN_BEAT_MS = 650;
+  const [evalAfterWhitePOV] = await Promise.all([
+    sfEvalLatest(fenAfter),
+    new Promise(res => setTimeout(res, MIN_BEAT_MS)),
+  ]);
 
-  // ── 4. Convert to player perspective and compute drop.
-  // White wants eval to go UP. Black wants eval to go DOWN.
-  // So the "drop from my POV" is:
-  //   white: before - after  (positive = bad for white)
-  //   black: after - before  (positive = bad for black)
+  stopSuspense();
+  S.judging = false;
+
+  // ── 4. Verdict.
+  await runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV });
+}
+
+// Builds blunderDetail, decides safe vs blunder, drives reveal + networking.
+async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV }) {
+  const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
+  const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
+  const BLUNDER_THRESHOLD = 2.0;
+
   const evalDrop = S.myColor === 'white'
     ? evalBeforeWhitePOV - evalAfterWhitePOV
     : evalAfterWhitePOV - evalBeforeWhitePOV;
 
   console.log('[SF]',
-    'before(W):', evalBeforeWhitePOV.toFixed(2),
-    'after(W):', evalAfterWhitePOV.toFixed(2),
+    'before(W):', (evalBeforeWhitePOV||0).toFixed(2),
+    'after(W):', (evalAfterWhitePOV||0).toFixed(2),
     'drop(me):', evalDrop.toFixed(2),
     'myColor:', S.myColor);
 
-  // Store evalScore in white's POV (consistent for the UI bar)
   S.evalScore = evalAfterWhitePOV;
 
   const isClientBlunder = evalDrop >= BLUNDER_THRESHOLD;
   const worstLoss = Math.max(0, evalDrop);
 
-  // ── 5. If blunder, try to build a human-readable explanation
-  let blunderDetail = null;
+  // move-log color
+  const playerPovDelta = -evalDrop;
+  const quality = isClientBlunder ? 'blunder'
+                : playerPovDelta > 0.3 ? 'good'
+                : playerPovDelta < -0.3 ? 'inaccuracy'
+                : '';
+  S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
+  updateMoveLog();
+  updateEvalUI();
+
+  // ════════════ BLUNDER ════════════
   if (isClientBlunder) {
+    // Build human-readable explanation
+    let blunderDetail = null;
     const opponentMoves = S.chess.moves({ verbose: true });
     const myPieceValue = VALS[moveObj.piece] || 0;
     for (const om of opponentMoves) {
@@ -764,80 +854,17 @@ async function executeMyMove(from, to) {
         lostPiece: 'positional advantage',
         lostValue: evalDrop.toFixed(1) + ' pawns',
         attackerPiece: 'opponent threat',
-        attackerFrom: '?',
-        attackerTo: '?',
-        defended: false,
-        recaptureValue: 0,
-        netLoss: evalDrop.toFixed(1),
-        positional: true
+        attackerFrom: '?', attackerTo: '?',
+        defended: false, recaptureValue: 0,
+        netLoss: evalDrop.toFixed(1), positional: true
       };
     }
-  }
 
-  // For the move-log color: good/inaccuracy thresholds in player-POV pawns
-  const playerPovDelta = -evalDrop; // positive = good for me
-  const quality = isClientBlunder ? 'blunder'
-                : playerPovDelta > 0.3 ? 'good'
-                : playerPovDelta < -0.3 ? 'inaccuracy'
-                : '';
-  S.moveHistory.push({ san: moveObj.san, color: S.myColor, quality, captured: moveObj.captured });
-
-  // If it's a blunder, signal to server to end the game
-  if (isClientBlunder) {
-    wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
-    // Lock the board immediately — don't wait for server round-trip
     S.gameOver = true;
     stopLocalTimer();
-    // Show the dramatic blunder feedback NOW
-    setTimeout(() => {
-      // If server hasn't ended the game in 1.5s, force-end it locally
-      if (!document.getElementById('result-modal').classList.contains('show')) {
-        console.log('[BLUNDER] Server slow, forcing local game over');
-        onGameOver({
-          type: 'game_over',
-          reason: 'You blundered — ' + moveObj.san,
-          blunderDetail: blunderDetail,
-          winner: S.myColor === 'white' ? 'black' : 'white',
-          winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
-          ratings: {
-            white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
-            black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
-          },
-          noAdsUnlocked: { white: false, black: false }
-        });
-      }
-    }, 1500);
-  }
+    wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
-  updateMoveLog();
-  updateEvalUI();
-  renderBoard();
-
-  if (moveObj.captured) {
-    S.capturedMe.push((S.myColor==='white'?'b':'w') + moveObj.captured.toUpperCase());
-    updateCaptures();
-  }
-
-  // Send to server (evals in WHITE'S perspective, pawns)
-  wsSend({
-    type: 'move',
-    from, to,
-    san: moveObj.san,
-    evalBefore: evalBeforeWhitePOV,
-    evalAfter: evalAfterWhitePOV,
-  });
-
-  // Check for checkmate/stalemate after our move
-  if (S.chess.in_checkmate()) {
-    console.log('[CHECKMATE detected]');
-    wsSend({ type: 'checkmate', winner: S.myColor });
-  } else if (S.chess.in_stalemate() || S.chess.in_draw()) {
-    console.log('[DRAW detected]');
-    wsSend({ type: 'draw' });
-  }
-
-  // DRAMATIC visual feedback
-  if (isClientBlunder) {
+    // Dramatic red reveal
     sndBlunder();
     const reactions = [
       { text: 'BLUNDER', sub: 'You hung that piece' },
@@ -852,28 +879,53 @@ async function executeMyMove(from, to) {
       { text: 'TRAGIC', sub: 'So close yet so far' },
     ];
     const r = reactions[Math.floor(Math.random() * reactions.length)];
-    const flash = document.createElement('div');
-    flash.className = 'blunder-flash';
+    const flash = document.createElement('div'); flash.className = 'blunder-flash';
     document.body.appendChild(flash);
-    const text = document.createElement('div');
-    text.className = 'blunder-text';
-    text.textContent = r.text;
+    const text = document.createElement('div'); text.className = 'blunder-text'; text.textContent = r.text;
     document.body.appendChild(text);
-    const sub = document.createElement('div');
-    sub.className = 'blunder-sub';
-    sub.textContent = r.sub;
+    const sub = document.createElement('div'); sub.className = 'blunder-sub'; sub.textContent = r.sub;
     document.body.appendChild(sub);
     setTimeout(() => { flash.remove(); text.remove(); sub.remove(); }, 2500);
-  } else if (quality === 'good') {
-    sndGood();
-    const flash = document.createElement('div');
-    flash.className = 'good-flash';
-    document.body.appendChild(flash);
-    const text = document.createElement('div');
-    text.className = 'good-text';
-    text.textContent = moveObj.captured ? 'NICE TAKE' : 'GOOD MOVE';
-    document.body.appendChild(text);
-    setTimeout(() => { flash.remove(); text.remove(); }, 1000);
+
+    // Failsafe local game-over if server is slow
+    setTimeout(() => {
+      if (!document.getElementById('result-modal').classList.contains('show')) {
+        console.log('[BLUNDER] Server slow, forcing local game over');
+        onGameOver({
+          type: 'game_over',
+          reason: 'You blundered — ' + moveObj.san,
+          blunderDetail,
+          winner: S.myColor === 'white' ? 'black' : 'white',
+          winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
+          ratings: {
+            white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
+            black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
+          },
+          noAdsUnlocked: { white: false, black: false }
+        });
+      }
+    }, 1500);
+    return;
+  }
+
+  // ════════════ SAFE ════════════
+  // You survived. Send the move to the server now (held until verdict so the
+  // opponent never sees a move that turns out to be fatal).
+  wsSend({
+    type: 'move',
+    from, to,
+    san: moveObj.san,
+    evalBefore: evalBeforeWhitePOV,
+    evalAfter: evalAfterWhitePOV,
+  });
+
+  // Checkmate / stalemate after a SAFE move
+  if (S.chess.in_checkmate()) {
+    console.log('[CHECKMATE detected]');
+    wsSend({ type: 'checkmate', winner: S.myColor });
+  } else if (S.chess.in_stalemate() || S.chess.in_draw()) {
+    console.log('[DRAW detected]');
+    wsSend({ type: 'draw' });
   }
 
   updateTurnUI();
@@ -903,6 +955,11 @@ function onOpponentMove(msg) {
   renderBoard();
   updateTurnUI();
   startLocalTimer();
+
+  // Pre-eval the position NOW (during my thinking time) so the suspense beat
+  // after I move only needs the AFTER eval. Cached in S.preMoveEval.
+  S.preMoveEval = null;
+  sfEvalLatest(S.chess.fen()).then(v => { S.preMoveEval = v; }).catch(()=>{});
 }
 
 // Server timer sync

@@ -846,3 +846,35 @@ body {
   80%  { opacity: 1; transform: translate(-50%, -50%); }
   100% { opacity: 0; transform: translate(-50%, -70%); }
 }
+
+
+/* ════════════════════════════════════════
+   SUSPENSE BEAT — "am I dead?" moment
+════════════════════════════════════════ */
+#suspense-overlay {
+  position: fixed; inset: 0; z-index: 870;
+  pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse 90% 90% at 50% 50%, rgba(14,17,22,0.55) 0%, rgba(14,17,22,0.88) 100%);
+  transition: opacity 0.18s ease;
+  display: flex; align-items: center; justify-content: center;
+}
+#suspense-overlay.show { opacity: 1; }
+.suspense-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; letter-spacing: 10px; text-transform: uppercase;
+  color: #FF7A1A; opacity: 0.9;
+  animation: suspensePulse 0.56s ease-in-out infinite alternate;
+}
+@keyframes suspensePulse {
+  from { opacity: 0.35; transform: scale(1); text-shadow: 0 0 10px rgba(255,122,26,0.3); }
+  to   { opacity: 0.95; transform: scale(1.06); text-shadow: 0 0 26px rgba(255,122,26,0.8); }
+}
+
+/* Board ring during judging — tense amber breathing */
+.board.judging {
+  animation: boardJudge 0.56s ease-in-out infinite alternate !important;
+}
+@keyframes boardJudge {
+  from { box-shadow: 0 0 0 2px rgba(255,122,26,0.25), 0 0 40px rgba(0,0,0,.6); }
+  to   { box-shadow: 0 0 0 3px rgba(255,122,26,0.7), 0 0 70px rgba(255,122,26,0.35); }
+}
