@@ -452,6 +452,7 @@ function onGameStart(msg) {
   S.myColor = msg.color;
   S.gameId = msg.gameId;
   S.gameOver = false;
+  S._gameOverFired = false;
   S.selected = null; S.legalMoves = []; renderBoard();
   S.lastFrom = null; S.lastTo = null;
   S.moveHistory = [];
@@ -753,7 +754,7 @@ async function executeMyMove(from, to) {
 async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV }) {
   const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
   const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
-  const BLUNDER_THRESHOLD = 2.0;
+  const BLUNDER_THRESHOLD = 1.5;  // matches server BLUNDER_THRESH (-1.5)
 
   const evalDrop = S.myColor === 'white'
     ? evalBeforeWhitePOV - evalAfterWhitePOV
@@ -847,7 +848,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
     // Failsafe local game-over if server is slow
     setTimeout(() => {
-      if (!document.getElementById('result-modal').classList.contains('show')) {
+      if (!S._gameOverFired && !document.getElementById('result-modal').classList.contains('show')) {
         console.log('[BLUNDER] Server slow, forcing local game over');
         onGameOver({
           type: 'game_over',
@@ -1131,6 +1132,8 @@ function startAutoRestartCountdown() {
 // GAME OVER
 // ══════════════════════════════════════════
 function onGameOver(msg) {
+  if (S._gameOverFired) { console.log('[GAME OVER] ignored duplicate'); return; }
+  S._gameOverFired = true;
   console.log('[GAME OVER]', JSON.stringify(msg));
   S.gameOver = true;
   stopLocalTimer();
