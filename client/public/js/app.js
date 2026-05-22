@@ -679,86 +679,7 @@ function verdictFlash(color) {
 // ══════════════════════════════════════════
 // PARKOUR JUDGING BEAT — blocky guy leaps a gap; eval decides stick vs faceplant
 // ══════════════════════════════════════════
-let _parkourBuilt = false;
-function buildParkour() {
-  let ov = document.getElementById('parkour-overlay');
-  if (!ov) {
-    ov = document.createElement('div');
-    ov.id = 'parkour-overlay';
-    ov.innerHTML = `
-      <div class="pk-scene" id="pk-scene">
-        <div class="pk-plat pk-start"></div>
-        <div class="pk-plat pk-land" id="pk-land"></div>
-        <div class="pk-void"></div>
-        <div class="pk-guy" id="pk-guy">
-          <div class="pk-body"></div>
-          <div class="pk-face"><span></span><span></span></div>
-        </div>
-        <div class="pk-dust" id="pk-dust"></div>
-        <div class="pk-verdict" id="pk-verdict"></div>
-      </div>`;
-    document.body.appendChild(ov);
-  }
-  _parkourBuilt = true;
-}
-
-function runParkour(beatMs) {
-  return new Promise((resolve) => {
-    if (!_parkourBuilt) buildParkour();
-    const game = document.getElementById('s-game');
-    if (game) game.classList.add('judging-cut');
-    const ov = document.getElementById('parkour-overlay');
-    const guy = document.getElementById('pk-guy');
-    const dust = document.getElementById('pk-dust');
-    const verdict = document.getElementById('pk-verdict');
-
-    ov.classList.remove('landed','fell');
-    guy.className = 'pk-guy';
-    if (dust) dust.className = 'pk-dust';
-    if (verdict) { verdict.textContent = ''; verdict.className = 'pk-verdict'; }
-    ov.classList.add('show');
-    sndHeart();
-
-    requestAnimationFrame(() => {
-      guy.classList.add('running');
-      setTimeout(() => { guy.classList.add('launching'); sndTick(); }, 280);
-    });
-
-    setTimeout(() => {
-      if (game) game.classList.remove('judging-cut');
-      resolve();
-    }, beatMs);
-  });
-}
-
-function setLanding(playerStanding, isBlunder) {
-  const ov = document.getElementById('parkour-overlay');
-  const guy = document.getElementById('pk-guy');
-  const dust = document.getElementById('pk-dust');
-  const verdict = document.getElementById('pk-verdict');
-  if (!ov || !guy) return;
-
-  guy.classList.remove('launching');
-
-  if (isBlunder) {
-    ov.classList.add('fell');
-    guy.classList.add('fall');
-    if (verdict) { verdict.textContent = 'MISSED IT'; verdict.classList.add('show','bad'); }
-    setTimeout(() => ov.classList.remove('show'), 1900);
-    return;
-  }
-
-  const reach = Math.max(0, Math.min(6, playerStanding));
-  ov.style.setProperty('--reach', (0.6 + reach / 6 * 0.4).toFixed(2));
-  ov.classList.add('landed');
-  guy.classList.add('land');
-  if (dust) dust.classList.add('puff');
-  if (verdict) {
-    verdict.textContent = playerStanding > 1.2 ? 'STUCK IT!' : 'MADE IT';
-    verdict.classList.add('show','good');
-  }
-  setTimeout(() => ov.classList.remove('show'), 1100);
-}
+// (judging is now minimal: executeMyMove awaits the eval, then verdictFlash green/red)
 
 // Spawn the particle/shockwave explosion on the blundered square.
 function explodePiece(toSquare) {
@@ -820,11 +741,8 @@ async function executeMyMove(from, to) {
   S.judging = true;
   const fenAfter = S.chess.fen();
 
-  const BEAT_MS = 900;
-  const [evalAfterWhitePOV] = await Promise.all([
-    sfEval(fenAfter),
-    runParkour(BEAT_MS),
-  ]);
+  // Minimal: just wait for the engine eval, then flash the board green/red.
+  const evalAfterWhitePOV = await sfEval(fenAfter);
 
   S.judging = false;
 
@@ -849,11 +767,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
   S.evalScore = evalAfterWhitePOV;
 
-  // Surge the orb frontline to the post-move standing (player POV).
-  const playerStanding = S.myColor === 'white' ? evalAfterWhitePOV : -evalAfterWhitePOV;
-
   const isClientBlunder = evalDrop >= BLUNDER_THRESHOLD;
-  setLanding(playerStanding, isClientBlunder);
   const worstLoss = Math.max(0, evalDrop);
 
   // move-log color
