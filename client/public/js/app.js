@@ -677,120 +677,87 @@ function verdictFlash(color) {
 }
 
 // ══════════════════════════════════════════
-// JUDGING COUNTDOWN — board cuts away, 3-2-1, verdict at zero
+// PARKOUR JUDGING BEAT — blocky guy leaps a gap; eval decides stick vs faceplant
 // ══════════════════════════════════════════
-// ══════════════════════════════════════════
-// ORB BATTLE — slither.io-style glowing swarms clash during the judging beat
-// ══════════════════════════════════════════
-// Each side: a HERO orb (the player, their color) + a swarm of follower orbs.
-// During judging, both swarms surge to the contested frontline and collide.
-// The eval decides where the frontline settles (setFrontline, called from
-// runVerdict). A blunder routs the player's swarm.
-
-// Deterministic color from a username — gives each player a recognizable hue.
-function orbHue(name) {
-  let h = 0;
-  for (let i = 0; i < (name||'').length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return h;
-}
-
-let _battleBuilt = false;
-function buildBattle() {
-  let ov = document.getElementById('battle-overlay');
+let _parkourBuilt = false;
+function buildParkour() {
+  let ov = document.getElementById('parkour-overlay');
   if (!ov) {
     ov = document.createElement('div');
-    ov.id = 'battle-overlay';
+    ov.id = 'parkour-overlay';
     ov.innerHTML = `
-      <div class="frontline" id="frontline"></div>
-      <div class="swarm me" id="swarm-me"></div>
-      <div class="swarm opp" id="swarm-opp"></div>
-      <div class="clash" id="clash"></div>`;
+      <div class="pk-scene" id="pk-scene">
+        <div class="pk-plat pk-start"></div>
+        <div class="pk-plat pk-land" id="pk-land"></div>
+        <div class="pk-void"></div>
+        <div class="pk-guy" id="pk-guy">
+          <div class="pk-body"></div>
+          <div class="pk-face"><span></span><span></span></div>
+        </div>
+        <div class="pk-dust" id="pk-dust"></div>
+        <div class="pk-verdict" id="pk-verdict"></div>
+      </div>`;
     document.body.appendChild(ov);
   }
-
-  // My hue from my username; opponent from theirs (fallback to ember/crimson)
-  const meName  = (S.user && S.user.username) || 'you';
-  const oppName = (S.opponent && S.opponent.username) || 'opp';
-  const meHue  = orbHue(meName);
-  const oppHue = orbHue(oppName);
-  ov.style.setProperty('--me-hue', meHue);
-  ov.style.setProperty('--opp-hue', oppHue);
-
-  const buildSwarm = (el, isMe) => {
-    el.innerHTML = '';
-    // hero orb
-    const hero = document.createElement('div');
-    hero.className = 'orb hero';
-    el.appendChild(hero);
-    // followers
-    const N = 14;
-    for (let i = 0; i < N; i++) {
-      const o = document.createElement('div');
-      o.className = 'orb';
-      const top = 8 + Math.random() * 84;        // vertical spread (%)
-      const off = Math.random() * 16;            // horizontal jitter (%)
-      o.style.top = top + '%';
-      o.style[isMe ? 'left' : 'right'] = off + '%';
-      o.style.setProperty('--d', (Math.random() * 2).toFixed(2) + 's'); // float delay
-      o.style.setProperty('--sz', (8 + Math.random() * 14).toFixed(0) + 'px');
-      el.appendChild(o);
-    }
-  };
-  buildSwarm(document.getElementById('swarm-me'), true);
-  buildSwarm(document.getElementById('swarm-opp'), false);
-
-  _battleBuilt = true;
+  _parkourBuilt = true;
 }
 
-// Position the frontline. playerAdvantage in pawns (your POV): + = you winning.
-// Soft-clamped so there's always a visible contest (8%..92%).
-function setFrontline(playerAdvantage) {
-  const fl = document.getElementById('frontline');
-  const me = document.getElementById('swarm-me');
-  const opp = document.getElementById('swarm-opp');
-  if (!fl) return;
-  // map -6..+6 pawns -> 8%..92% (50% = even)
-  let pct = 50 + (Math.max(-6, Math.min(6, playerAdvantage)) / 6) * 42;
-  pct = Math.max(8, Math.min(92, pct));
-  fl.style.left = pct + '%';
-  if (me)  me.style.width  = pct + '%';
-  if (opp) opp.style.width = (100 - pct) + '%';
-}
-
-// The judging beat: armies clash at the frontline while Stockfish thinks.
-function runBattle(beatMs) {
+function runParkour(beatMs) {
   return new Promise((resolve) => {
-    if (!_battleBuilt) buildBattle();
+    if (!_parkourBuilt) buildParkour();
     const game = document.getElementById('s-game');
     if (game) game.classList.add('judging-cut');
-    const ov = document.getElementById('battle-overlay');
-    ov.classList.add('show', 'clashing');
+    const ov = document.getElementById('parkour-overlay');
+    const guy = document.getElementById('pk-guy');
+    const dust = document.getElementById('pk-dust');
+    const verdict = document.getElementById('pk-verdict');
+
+    ov.classList.remove('landed','fell');
+    guy.className = 'pk-guy';
+    if (dust) dust.className = 'pk-dust';
+    if (verdict) { verdict.textContent = ''; verdict.className = 'pk-verdict'; }
+    ov.classList.add('show');
     sndHeart();
 
-    // collision sparks at the frontline
-    const clash = document.getElementById('clash');
-    const fl = document.getElementById('frontline');
-    if (clash && fl) {
-      clash.style.left = fl.style.left || '50%';
-      clash.innerHTML = '';
-      for (let i = 0; i < 14; i++) {
-        const sp = document.createElement('div');
-        sp.className = 'spark';
-        sp.style.setProperty('--a', (Math.random() * 360).toFixed(0) + 'deg');
-        sp.style.setProperty('--dist', (20 + Math.random() * 40).toFixed(0) + 'px');
-        sp.style.top = (30 + Math.random() * 40) + '%';
-        clash.appendChild(sp);
-      }
-    }
+    requestAnimationFrame(() => {
+      guy.classList.add('running');
+      setTimeout(() => { guy.classList.add('launching'); sndTick(); }, 280);
+    });
 
     setTimeout(() => {
-      ov.classList.remove('clashing');
       if (game) game.classList.remove('judging-cut');
-      // leave overlay visible a beat so the frontline surge (set in runVerdict) shows
-      setTimeout(() => ov.classList.remove('show'), 650);
       resolve();
     }, beatMs);
   });
+}
+
+function setLanding(playerStanding, isBlunder) {
+  const ov = document.getElementById('parkour-overlay');
+  const guy = document.getElementById('pk-guy');
+  const dust = document.getElementById('pk-dust');
+  const verdict = document.getElementById('pk-verdict');
+  if (!ov || !guy) return;
+
+  guy.classList.remove('launching');
+
+  if (isBlunder) {
+    ov.classList.add('fell');
+    guy.classList.add('fall');
+    if (verdict) { verdict.textContent = 'MISSED IT'; verdict.classList.add('show','bad'); }
+    setTimeout(() => ov.classList.remove('show'), 1900);
+    return;
+  }
+
+  const reach = Math.max(0, Math.min(6, playerStanding));
+  ov.style.setProperty('--reach', (0.6 + reach / 6 * 0.4).toFixed(2));
+  ov.classList.add('landed');
+  guy.classList.add('land');
+  if (dust) dust.classList.add('puff');
+  if (verdict) {
+    verdict.textContent = playerStanding > 1.2 ? 'STUCK IT!' : 'MADE IT';
+    verdict.classList.add('show','good');
+  }
+  setTimeout(() => ov.classList.remove('show'), 1100);
 }
 
 // Spawn the particle/shockwave explosion on the blundered square.
@@ -856,7 +823,7 @@ async function executeMyMove(from, to) {
   const BEAT_MS = 900;
   const [evalAfterWhitePOV] = await Promise.all([
     sfEval(fenAfter),
-    runBattle(BEAT_MS),
+    runParkour(BEAT_MS),
   ]);
 
   S.judging = false;
@@ -884,9 +851,9 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
   // Surge the orb frontline to the post-move standing (player POV).
   const playerStanding = S.myColor === 'white' ? evalAfterWhitePOV : -evalAfterWhitePOV;
-  setFrontline(playerStanding);
 
   const isClientBlunder = evalDrop >= BLUNDER_THRESHOLD;
+  setLanding(playerStanding, isClientBlunder);
   const worstLoss = Math.max(0, evalDrop);
 
   // move-log color
