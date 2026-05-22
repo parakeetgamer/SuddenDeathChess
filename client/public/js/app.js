@@ -103,13 +103,26 @@ function initStockfish() {
 }
 
 function sfSendHandshake() {
-  console.log('[SF] engine awake — sending handshake');
-  SF.engine.postMessage('uci');
+  // Retry 'uci' until the engine answers 'uciok' — the only proof its
+  // runtime is actually alive. Early commands get silently dropped while
+  // the asm.js module is still compiling, so we poll.
+  let tries = 0;
+  SF._uciTimer = setInterval(() => {
+    if (SF._gotUciok || tries > 30) { clearInterval(SF._uciTimer); return; }
+    tries++;
+    console.log('[SF] handshake attempt', tries);
+    SF.engine.postMessage('uci');
+  }, 400);
+}
+
+function sfFinishHandshake() {
+  if (SF._uciTimer) { clearInterval(SF._uciTimer); SF._uciTimer = null; }
   SF.engine.postMessage('setoption name MultiPV value 1');
   SF.engine.postMessage('setoption name Threads value 1');
   SF.engine.postMessage('setoption name Hash value 16');
   SF.engine.postMessage('ucinewgame');
   SF.engine.postMessage('isready');
+  console.log('[SF] handshake complete, engine ready');
 }
 
 function onStockfishMessage(event) {
@@ -121,10 +134,14 @@ function onStockfishMessage(event) {
   if (!SF._initialized) {
     SF._initialized = true;
     sfSendHandshake();
-    return;
+    // fall through — this same message might be 'uciok'
   }
 
-  if (msg === 'readyok' || msg.startsWith('uciok')) {
+  if (msg.startsWith('uciok')) {
+    if (!SF._gotUciok) { SF._gotUciok = true; sfFinishHandshake(); }
+    return;
+  }
+  if (msg === 'readyok') {
     SF.ready = true;
     pumpQueue();
     return;
