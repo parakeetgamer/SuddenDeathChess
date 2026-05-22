@@ -850,54 +850,64 @@ body {
 
 
 
+
+
 /* ════════════════════════════════════════
-   SUSPENSE BEAT — the moved piece is the bomb
+   JUDGING COUNTDOWN + VERDICT FLASH
 ════════════════════════════════════════ */
-#suspense-overlay {
-  position: fixed; inset: 0; z-index: 860;
-  pointer-events: none; opacity: 0;
-  background: radial-gradient(ellipse 95% 95% at 50% 50%, rgba(14,17,22,0.45) 0%, rgba(14,17,22,0.82) 100%);
-  transition: opacity 0.16s ease;
+#s-game.judging-cut .game-body > *:not(.g-center),
+#s-game.judging-cut .board-wrap,
+#s-game.judging-cut .game-nav {
+  opacity: 0; transition: opacity 0.12s ease;
 }
-#suspense-overlay.show { opacity: 1; }
+#s-game.judging-cut .g-center { background: transparent; }
 
-/* The moved piece trembles + swells. Intensity driven by --shake (0..1). */
-.piece.judging-piece {
-  --shake: 0.12;
-  position: relative;
-  z-index: 50;
-  transform-origin: center;
-  animation: pieceJudge calc(0.16s - (var(--shake) * 0.09s)) linear infinite;
-  filter: drop-shadow(0 0 calc(4px + var(--shake) * 22px) rgba(255, calc(122 - var(--shake)*122), 26, calc(0.4 + var(--shake)*0.6)));
+#countdown-overlay {
+  position: fixed; inset: 0; z-index: 880;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; opacity: 0; transition: opacity 0.12s ease;
 }
-@keyframes pieceJudge {
-  0%   { transform: translate(calc(var(--shake) * -3px), calc(var(--shake) * 2px)) scale(calc(1 + var(--shake) * 0.45)) rotate(calc(var(--shake) * -4deg)); }
-  25%  { transform: translate(calc(var(--shake) * 3px),  calc(var(--shake) * -2px)) scale(calc(1 + var(--shake) * 0.5)) rotate(calc(var(--shake) * 4deg)); }
-  50%  { transform: translate(calc(var(--shake) * -2px), calc(var(--shake) * -3px)) scale(calc(1 + var(--shake) * 0.42)) rotate(calc(var(--shake) * 3deg)); }
-  75%  { transform: translate(calc(var(--shake) * 2px),  calc(var(--shake) * 3px)) scale(calc(1 + var(--shake) * 0.5)) rotate(calc(var(--shake) * -3deg)); }
-  100% { transform: translate(calc(var(--shake) * -3px), calc(var(--shake) * 2px)) scale(calc(1 + var(--shake) * 0.45)) rotate(calc(var(--shake) * -4deg)); }
+#countdown-overlay.show { opacity: 1; }
+#countdown-num {
+  font-family: 'Antonio', sans-serif; font-weight: 700;
+  font-size: clamp(120px, 22vw, 240px); line-height: 1;
+  color: #F5F1EA; text-shadow: 0 0 60px rgba(255,122,26,0.5);
+}
+#countdown-num.pop { animation: cdPop 0.4s cubic-bezier(.2,.8,.3,1); }
+@keyframes cdPop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  40%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-/* SAFE — green pulse on the survived square */
+.verdict-flash {
+  position: fixed; inset: 0; z-index: 905; pointer-events: none;
+  animation: verdictFlashAnim 0.5s ease-out forwards;
+}
+.verdict-flash.green { background: radial-gradient(ellipse at center, rgba(52,211,153,0.45) 0%, transparent 70%); }
+.verdict-flash.red   { background: radial-gradient(ellipse at center, rgba(225,29,46,0.55) 0%, transparent 70%); }
+@keyframes verdictFlashAnim {
+  0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; }
+}
+
 .sq.verdict-safe::before {
   content: ''; position: absolute; inset: 0; z-index: 40;
   background: radial-gradient(circle at center, rgba(52,211,153,0.55) 0%, transparent 70%);
   animation: safePulse 0.6s ease-out forwards; pointer-events: none;
 }
 @keyframes safePulse {
-  0%   { opacity: 0; transform: scale(0.6); }
-  35%  { opacity: 1; transform: scale(1.05); }
+  0% { opacity: 0; transform: scale(0.6); }
+  35% { opacity: 1; transform: scale(1.05); }
   100% { opacity: 0; transform: scale(1.2); }
 }
 
-/* BLUNDER — explosion */
 .piece.exploding-piece {
   animation: pieceBoom 0.4s cubic-bezier(.4,0,.2,1) forwards !important;
   z-index: 60 !important;
 }
 @keyframes pieceBoom {
-  0%   { transform: scale(1.45); opacity: 1; }
-  30%  { transform: scale(2.1); opacity: 1; filter: brightness(2) drop-shadow(0 0 30px #E11D2E); }
+  0% { transform: scale(1.0); opacity: 1; }
+  30% { transform: scale(1.8); opacity: 1; filter: brightness(2) drop-shadow(0 0 30px #E11D2E); }
   100% { transform: scale(0.2); opacity: 0; }
 }
 .explosion {
@@ -906,11 +916,10 @@ body {
 }
 .shockwave {
   position: absolute; width: 20%; height: 20%; border-radius: 50%;
-  border: 3px solid #E11D2E;
-  animation: shockwave 0.7s ease-out forwards;
+  border: 3px solid #E11D2E; animation: shockwave 0.7s ease-out forwards;
 }
 @keyframes shockwave {
-  0%   { transform: scale(0.4); opacity: 0.95; border-width: 5px; }
+  0% { transform: scale(0.4); opacity: 0.95; border-width: 5px; }
   100% { transform: scale(6); opacity: 0; border-width: 1px; }
 }
 .shard {
@@ -919,6 +928,6 @@ body {
   animation: shard 0.8s cubic-bezier(.2,.6,.3,1) forwards;
 }
 @keyframes shard {
-  0%   { transform: translate(-50%, -50%) rotate(0deg); opacity: 1; }
+  0% { transform: translate(-50%, -50%) rotate(0deg); opacity: 1; }
   100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)); opacity: 0; }
 }

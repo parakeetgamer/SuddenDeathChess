@@ -117,6 +117,8 @@ function onStockfishMessage(event) {
 
   if (msg.startsWith('info') && msg.includes(' pv ')) {
     // Track latest score during search
+    const depthMatch = msg.match(/ depth (\d+)/);
+    if (depthMatch) SF.current.latestDepth = parseInt(depthMatch[1]);
     const mateMatch = msg.match(/score mate (-?\d+)/);
     const cpMatch = msg.match(/score cp (-?\d+)/);
     if (mateMatch) {
@@ -154,6 +156,7 @@ function finishCurrent() {
     whiteCp = 0;
   }
 
+  console.log('[SF] depth', c.latestDepth || '?', 'eval(W):', (whiteCp/100).toFixed(2));
   c.resolve(whiteCp / 100); // pawns, white POV
   pumpQueue();
 }
@@ -167,6 +170,7 @@ function pumpQueue() {
     resolve: job.resolve,
     latestCp: null,
     latestMate: null,
+    latestDepth: 0,
     sideToMove,
     timer: null,
   };
@@ -699,55 +703,48 @@ async function onSqClick(e) {
   renderBoard();
 }
 
+// Full-screen green (safe) / red (blunder) flash on every verdict.
+function verdictFlash(color) {
+  const f = document.createElement('div');
+  f.className = 'verdict-flash ' + color;
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 520);
+}
+
 // ══════════════════════════════════════════
-// SUSPENSE BEAT — the moved piece shakes/swells, then defuses or explodes
+// JUDGING COUNTDOWN — board cuts away, 3-2-1, verdict at zero
 // ══════════════════════════════════════════
-let _suspenseHeart = null;
-let _judgeSq = null;
+function runCountdown(perCountMs) {
+  return new Promise((resolve) => {
+    const game = document.getElementById('s-game');
+    if (game) game.classList.add('judging-cut');
 
-function judgingPieceEl() {
-  if (!_judgeSq) return null;
-  const sq = document.querySelector('#board [data-sq="' + _judgeSq + '"]');
-  return sq ? sq.querySelector('img.piece') : null;
-}
+    let ov = document.getElementById('countdown-overlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'countdown-overlay';
+      ov.innerHTML = '<div id="countdown-num"></div>';
+      document.body.appendChild(ov);
+    }
+    ov.classList.add('show');
+    const numEl = ov.querySelector('#countdown-num');
 
-function setShakeIntensity(danger) {
-  // danger 0..1 → drives the CSS --shake variable on the moved piece
-  const el = judgingPieceEl();
-  if (el) el.style.setProperty('--shake', danger.toFixed(3));
-}
-
-function startSuspense(toSquare) {
-  _judgeSq = toSquare;
-
-  // Dim overlay behind the board (no center text — the piece is the focus)
-  let ov = document.getElementById('suspense-overlay');
-  if (!ov) {
-    ov = document.createElement('div');
-    ov.id = 'suspense-overlay';
-    document.body.appendChild(ov);
-  }
-  ov.classList.remove('reveal-safe','reveal-blunder');
-  ov.classList.add('show');
-
-  // The piece begins to tremble (starts at low intensity until shallow eval calibrates)
-  const el = judgingPieceEl();
-  if (el) {
-    el.style.setProperty('--shake', '0.12');
-    el.classList.add('judging-piece');
-  }
-
-  // Heartbeat
-  sndHeart();
-  _suspenseHeart = setInterval(sndHeart, 460);
-}
-
-function stopSuspense() {
-  if (_suspenseHeart) { clearInterval(_suspenseHeart); _suspenseHeart = null; }
-  const ov = document.getElementById('suspense-overlay');
-  if (ov) ov.classList.remove('show');
-  const el = judgingPieceEl();
-  if (el) { el.classList.remove('judging-piece'); el.style.removeProperty('--shake'); }
+    let n = 3;
+    const tick = () => {
+      numEl.textContent = n;
+      numEl.classList.remove('pop'); void numEl.offsetWidth; numEl.classList.add('pop');
+      sndTick();
+      n--;
+      if (n < 0) {
+        clearInterval(iv);
+        ov.classList.remove('show');
+        if (game) game.classList.remove('judging-cut');
+        resolve();
+      }
+    };
+    tick();
+    const iv = setInterval(tick, perCountMs);
+  });
 }
 
 // Spawn the particle/shockwave explosion on the blundered square.
@@ -778,19 +775,16 @@ function explodePiece(toSquare) {
 }
 
 async function executeMyMove(from, to) {
-  if (S.judging || S.gameOver) return;   // can't move during a verdict
+  if (S.judging || S.gameOver) return;
 
-  // ── 1. Eval BEFORE the move. Prefer the cached pre-eval computed during
-  //       the opponent's turn; fall back to a fresh eval if not ready.
-  const fenBefore = S.chess.fen();
-  let evalBeforeWhitePOV = (S.preMoveEval !== null) ? S.preMoveEval : await sfEval(fenBefore);
+  // Eval BEFORE the move — from cache only. NEVER block the click on the engine.
+  const evalBeforeWhitePOV = (S.preMoveEval !== null) ? S.preMoveEval : (S.evalScore || 0);
   S.preMoveEval = null;
 
-  // ── 2. Make the move in chess.js — INSTANT, no awaiting the engine.
+  // Make the move — INSTANT.
   const moveObj = S.chess.move({ from, to, promotion: 'q' });
   if (!moveObj) return;
 
-  // Track timing
   if (S.moveStartTime > 0) {
     S.moveTimings.push((Date.now() - S.moveStartTime) / 1000);
     S.moveStartTime = 0;
@@ -809,33 +803,18 @@ async function executeMyMove(from, to) {
     updateCaptures();
   }
 
-  // ── 3. Enter the JUDGING beat. Board is locked. The moved piece shakes,
-  //       intensity calibrated by a fast shallow eval, while the deep eval
-  //       determines the real verdict.
+  // JUDGING: cut to 3-2-1 countdown while the deep eval runs concurrently.
   S.judging = true;
   const fenAfter = S.chess.fen();
-  startSuspense(to);
 
-  // Fast shallow eval (~150ms) → calibrate shake to how close this looks to a blunder.
-  sfEvalShallow(fenAfter).then(shallowWhitePOV => {
-    if (!S.judging) return; // verdict already landed
-    const shallowDrop = S.myColor === 'white'
-      ? evalBeforeWhitePOV - shallowWhitePOV
-      : shallowWhitePOV - evalBeforeWhitePOV;
-    const danger = Math.max(0, Math.min(1, shallowDrop / 2.0));
-    setShakeIntensity(danger);
-  }).catch(()=>{});
-
-  // Deep eval (~700ms) = the real verdict. Beat is at least MIN_BEAT_MS.
-  const MIN_BEAT_MS = 650;
+  const PER_COUNT_MS = 750;
   const [evalAfterWhitePOV] = await Promise.all([
     sfEval(fenAfter),
-    new Promise(res => setTimeout(res, MIN_BEAT_MS)),
+    runCountdown(PER_COUNT_MS),
   ]);
 
   S.judging = false;
 
-  // ── 4. Verdict.
   await runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV });
 }
 
@@ -907,7 +886,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
     S.gameOver = true;
     stopLocalTimer();
-    stopSuspense();
+    verdictFlash('red');
     explodePiece(to);
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
@@ -956,7 +935,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
   }
 
   // ════════════ SAFE ════════════
-  stopSuspense();
+  verdictFlash('green');
   // Quick green pulse on the square you survived
   const safeSq = document.querySelector('#board [data-sq="' + to + '"]');
   if (safeSq) {
