@@ -176,22 +176,19 @@ function doMove(ws, msg) {
   const { from, to, san, evalBefore, evalAfter } = msg;
   const delta = (evalAfter || 0) - (evalBefore || 0);
   const adjusted = color === 'white' ? delta : -delta;
-  const isBlunder = adjusted < BLUNDER_THRESH;
 
-  console.log('[MOVE]', ws.player.username, san, 'delta:', adjusted, 'blunder:', isBlunder);
+  console.log('[MOVE]', ws.player.username, san, 'delta:', adjusted);
   session.moves.push({ color, from, to, san, evalBefore, evalAfter, delta: adjusted });
   stopTurnTimer(session);
 
+  // NOTE: blunder detection is now CLIENT-side (tempo-corrected). The server no
+  // longer second-guesses it here — the client sends an explicit 'blunder' /
+  // 'opp_blunder' message when it decides. This keeps both sides in agreement.
   if (session.isBot) {
     session.bot.onMove(from, to);
-    send(ws, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder });
+    send(ws, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder: false });
   } else {
-    bcast(session, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder });
-  }
-
-  if (isBlunder) {
-    endGame(session, color === 'white' ? 'black' : 'white', ws.player.username + ' blundered — ' + san);
-    return;
+    bcast(session, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder: false });
   }
 
   const next = color === 'white' ? 'black' : 'white';
