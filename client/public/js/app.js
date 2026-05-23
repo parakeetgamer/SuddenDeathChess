@@ -173,6 +173,34 @@ function sfEval(fen, movetime) {
 
 function sfEvalShallow(fen) { return sfEval(fen, 150); }
 
+// Returns engine's best move for a FEN as {from,to} or null. Blunder replay only.
+function sfBestMove(fen, movetime) {
+  return new Promise((resolve) => {
+    let worker;
+    try { worker = new Worker('/js/stockfish.js'); }
+    catch (e) { resolve(null); return; }
+    let gotUciok = false, done = false;
+    const fin = (mv) => { if (done) return; done = true; clearTimeout(ht); try { worker.terminate(); } catch(e){} resolve(mv); };
+    worker.onmessage = (event) => {
+      const msg = typeof event === 'string' ? event : event.data;
+      if (!msg || typeof msg !== 'string') return;
+      if (!gotUciok) {
+        if (msg.startsWith('uciok')) { gotUciok = true; worker.postMessage('position fen ' + fen); worker.postMessage('go movetime ' + (movetime || 1000)); }
+        return;
+      }
+      if (msg.startsWith('bestmove')) {
+        const uci = msg.split(/\s+/)[1];
+        if (uci && uci.length >= 4 && uci !== '(none)') fin({ from: uci.slice(0,2), to: uci.slice(2,4) });
+        else fin(null);
+      }
+    };
+    worker.onerror = () => fin(null);
+    let tries = 0;
+    const poll = setInterval(() => { if (gotUciok || done || tries > 25) { clearInterval(poll); return; } tries++; worker.postMessage('uci'); }, 250);
+    const ht = setTimeout(() => { clearInterval(poll); fin(null); }, (movetime || 1000) + 2500);
+  });
+}
+
 // No queue to clear anymore — each eval is independent. Kept for call-site compat.
 function sfEvalLatest(fen) { return sfEval(fen); }
 
@@ -830,11 +858,50 @@ async function executeMyMove(from, to) {
 
   S.judging = false;
 
-  await runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV });
+  await runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, evalAfterWhitePOV });
 }
 
 // Builds blunderDetail, decides safe vs blunder, drives reveal + networking.
-async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV }) {
+// Teachable replay on blunder: undo the move, show the best move, then fade out.
+async function blunderReplay(fenBefore, badFrom, badTo) {
+  const board = document.getElementById('board');
+  // 1. undo my move so the board shows the pre-blunder position
+  try { S.chess.undo(); } catch(e) {}
+  S.lastFrom = null; S.lastTo = null;
+  renderBoard();
+
+  // 2. label overlay
+  let lbl = document.getElementById('replay-label');
+  if (!lbl) {
+    lbl = document.createElement('div');
+    lbl.id = 'replay-label';
+    document.body.appendChild(lbl);
+  }
+  lbl.textContent = 'Analyzing\u2026';
+  lbl.className = 'replay-label show';
+
+  // 3. ask the engine for the best move from that position
+  const best = await sfBestMove(fenBefore, 1000);
+
+  if (best) {
+    // highlight from/to squares
+    const fEl = document.querySelector('#board [data-sq="' + best.from + '"]');
+    const tEl = document.querySelector('#board [data-sq="' + best.to + '"]');
+    if (fEl) fEl.classList.add('best-from');
+    if (tEl) tEl.classList.add('best-to');
+    lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
+    // hold so the player can see it
+    await new Promise(r => setTimeout(r, 2200));
+    if (fEl) fEl.classList.remove('best-from');
+    if (tEl) tEl.classList.remove('best-to');
+  } else {
+    lbl.textContent = 'No clear best move';
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  lbl.classList.remove('show');
+}
+
+async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, evalAfterWhitePOV }) {
   const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
   const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
   const BLUNDER_THRESHOLD = 1.5;  // matches server BLUNDER_THRESH (-1.5)
@@ -908,13 +975,18 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
     S.gameOver = true;
     stopLocalTimer();
+    // Tell the server immediately (so the result is recorded), but hold the
+    // visual result until the teachable replay finishes.
+    wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
+
+    // Drama beat first
     boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
     explodePiece(to);
     shatterBoard(to);
-    wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
-
-    // Dramatic red reveal
     sndBlunder();
+
+    // Then: undo + show the best move, before the result screen appears.
+    await blunderReplay(fenBefore, from, to);
     const reactions = [
       { text: 'BLUNDER', sub: 'You hung that piece' },
       { text: 'CATASTROPHIC', sub: 'Game over, you' },
