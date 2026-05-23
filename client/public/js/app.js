@@ -1009,12 +1009,14 @@ function onOpponentMove(msg) {
   S.lastFrom = msg.from; S.lastTo = msg.to;
   if (moveObj.captured) sndCapture(); else sndMove();
 
-  // Opponent move: same judging beat as mine — real eval, then settle.
+  // Opponent move: same judging beat as mine — lock the board during eval.
+  S.judging = true;
   boardGlow('judging');
   sfEval(S.chess.fen()).then(ev => {
     const oppStanding = S.myColor === 'white' ? ev : -ev;
     boardGlow(oppStanding < -1.5 ? 'bad' : oppStanding > 1.5 ? 'good' : 'idle', 1100);
-  }).catch(()=>boardGlow('idle'));
+    S.judging = false;
+  }).catch(()=>{ boardGlow('idle'); S.judging = false; });
 
   if (moveObj.captured) {
     S.capturedOpp.push((S.myColor==='white'?'w':'b') + moveObj.captured.toUpperCase());
