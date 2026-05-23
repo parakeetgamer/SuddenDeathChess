@@ -120,8 +120,9 @@ class BotPlayer {
   scoreMoves(moves) {
     const scored = moves.map(m => {
       let score = 0;
-      if (m.captured) score += PIECE_VALUE[m.captured] * 10;
-      if (m.san.includes('+')) score += 2;
+      const cw = this.capWeight || 1; // archetype aggression multiplier
+      if (m.captured) score += PIECE_VALUE[m.captured] * 10 * cw;
+      if (m.san.includes('+')) score += 2 * cw;
       if (m.san.includes('#')) score += 10000;
       try {
         const test = new Chess(this.chess.fen());
