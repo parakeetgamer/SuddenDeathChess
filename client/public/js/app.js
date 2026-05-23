@@ -773,9 +773,16 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
   const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
   const BLUNDER_THRESHOLD = 1.5;  // matches server BLUNDER_THRESH (-1.5)
 
-  const evalDrop = S.myColor === 'white'
+  // Raw drop in MY favor (positive = I lost ground).
+  const rawDrop = S.myColor === 'white'
     ? evalBeforeWhitePOV - evalAfterWhitePOV
     : evalAfterWhitePOV - evalBeforeWhitePOV;
+  // evalBefore is measured with ME to move, so the engine reports it from the
+  // optimistic "I play the best move" view; evalAfter is with the OPPONENT to
+  // move. That side-to-move flip adds a systematic tempo swing (~0.5-0.7) to
+  // every move, even good ones. Subtract it so only real losses count.
+  const TEMPO_OFFSET = 0.7;
+  const evalDrop = rawDrop - TEMPO_OFFSET;
 
   console.log('[SF]',
     'before(W):', (evalBeforeWhitePOV||0).toFixed(2),
