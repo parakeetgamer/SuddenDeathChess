@@ -17,6 +17,7 @@ function tone(freq,type,dur,vol=.15,atk=.01,dec=.08){
 const sndMove    = () => tone(440,'sine',.05,.1,.005,.04);
 const sndCapture = () => tone(280,'sawtooth',.08,.14,.005,.07);
 const sndGood    = () => { tone(660,'sine',.08,.16,.01,.1); setTimeout(()=>tone(880,'sine',.06,.12,.005,.08),80); };
+const sndBrilliant = () => [523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.12,.16,.01,.1),i*70));
 const sndBlunder = () => { tone(220,'sawtooth',.15,.22,.01,.2); setTimeout(()=>tone(165,'sawtooth',.2,.22,.01,.25),100); setTimeout(()=>tone(110,'sawtooth',.3,.18,.01,.35),220); };
 const sndWin     = () => [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.15,.18,.01,.12),i*100));
 const sndTick    = () => tone(800,'square',.02,.07,.002,.02);
@@ -791,6 +792,51 @@ function shatterBoard(toSquare) {
 }
 
 // Spawn the particle/shockwave explosion on the blundered square.
+// Tiered good-move celebration. delta = how much the move gained (pawns).
+function goodEffect(toSquare, delta, wasCapture) {
+  const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
+  const brilliant = delta >= 2.0;
+  if (brilliant) {
+    sndBrilliant();
+    // gold edge glow
+    const glow = document.createElement('div'); glow.className = 'brilliant-edge';
+    document.body.appendChild(glow);
+    // big text
+    const t = document.createElement('div'); t.className = 'brilliant-text';
+    t.textContent = 'BRILLIANT'; document.body.appendChild(t);
+    const sub = document.createElement('div'); sub.className = 'brilliant-sub';
+    sub.textContent = wasCapture ? 'What a strike' : 'Pure precision';
+    document.body.appendChild(sub);
+    if (sq) sparkle(sq, 16, 'gold');
+    setTimeout(() => { glow.remove(); t.remove(); sub.remove(); }, 1600);
+  } else {
+    sndGood();
+    const t = document.createElement('div'); t.className = 'good-text';
+    t.textContent = wasCapture ? 'NICE TAKE' : 'GOOD MOVE';
+    document.body.appendChild(t);
+    if (sq) sparkle(sq, 7, 'green');
+    setTimeout(() => { t.remove(); }, 1000);
+  }
+}
+
+// Spawn rising sparkle particles off a square.
+function sparkle(sq, count, color) {
+  const wrap = document.createElement('div');
+  wrap.className = 'sparkle-wrap';
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement('div');
+    s.className = 'sparkle ' + color;
+    s.style.left = (Math.random() * 100) + '%';
+    s.style.setProperty('--sx', ((Math.random() * 2 - 1) * 40).toFixed(0) + 'px');
+    s.style.setProperty('--sup', (40 + Math.random() * 60).toFixed(0) + 'px');
+    s.style.setProperty('--sdel', (Math.random() * 0.3).toFixed(2) + 's');
+    s.style.setProperty('--ssz', (3 + Math.random() * 4).toFixed(1) + 'px');
+    wrap.appendChild(s);
+  }
+  sq.appendChild(wrap);
+  setTimeout(() => wrap.remove(), 1500);
+}
+
 // Randomly selects one of five blunder effects on the blundered square.
 function blunderEffect(toSquare) {
   const fx = ['shatter', 'melt', 'blood', 'tilt', 'implode'];
@@ -1217,13 +1263,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
   }
   // Genuinely good move (eval gained ≥0.8) gets a reward flash
   if (quality === 'good') {
-    sndGood();
-    const flash = document.createElement('div'); flash.className = 'good-flash';
-    document.body.appendChild(flash);
-    const gt = document.createElement('div'); gt.className = 'good-text';
-    gt.textContent = moveObj.captured ? 'NICE TAKE' : 'GOOD MOVE';
-    document.body.appendChild(gt);
-    setTimeout(() => { flash.remove(); gt.remove(); }, 1000);
+    goodEffect(to, playerPovDelta, !!moveObj.captured);
   }
 
   // You survived. Send the move to the server now (held until verdict so the
