@@ -952,7 +952,7 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
     }
     const arrow = drawBestArrow(best.from, best.to, isKnight);
     lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
-    await new Promise(r => setTimeout(r, 2400));
+    await new Promise(r => setTimeout(r, 6000));
     if (fEl) fEl.classList.remove('best-from');
     if (tEl) tEl.classList.remove('best-to');
     if (arrow) arrow.remove();
@@ -961,6 +961,14 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
     await new Promise(r => setTimeout(r, 1200));
   }
   lbl.classList.remove('show');
+
+  // Hard cleanup — clear EVERYTHING before the result modal fades in.
+  const arrowEl = document.getElementById('best-arrow');
+  if (arrowEl) arrowEl.remove();
+  document.querySelectorAll('#board .best-from, #board .best-to').forEach(el => {
+    el.classList.remove('best-from'); el.classList.remove('best-to');
+  });
+  if (lbl) lbl.remove();
 }
 
 async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, evalAfterWhitePOV }) {
