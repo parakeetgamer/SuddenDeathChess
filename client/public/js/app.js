@@ -952,7 +952,7 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
     }
     const arrow = drawBestArrow(best.from, best.to, isKnight);
     lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
-    await new Promise(r => setTimeout(r, 12000));
+    await new Promise(r => setTimeout(r, 6000));
     if (fEl) fEl.classList.remove('best-from');
     if (tEl) tEl.classList.remove('best-to');
     if (arrow) arrow.remove();
