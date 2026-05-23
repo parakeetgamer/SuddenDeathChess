@@ -942,12 +942,12 @@ function onOpponentMove(msg) {
   S.lastFrom = msg.from; S.lastTo = msg.to;
   if (moveObj.captured) sndCapture(); else sndMove();
 
-  // Opponent move: brief judging glow, then settle to their move's eval tier.
+  // Opponent move: same judging beat as mine — real eval, then settle.
   boardGlow('judging');
-  setTimeout(() => {
-    const oppStanding = S.myColor === 'white' ? (msg.evalAfter || 0) : -(msg.evalAfter || 0);
-    boardGlow(oppStanding < -1.5 ? 'bad' : oppStanding > 1.5 ? 'good' : 'idle', 900);
-  }, 500);
+  sfEval(S.chess.fen()).then(ev => {
+    const oppStanding = S.myColor === 'white' ? ev : -ev;
+    boardGlow(oppStanding < -1.5 ? 'bad' : oppStanding > 1.5 ? 'good' : 'idle', 1100);
+  }).catch(()=>boardGlow('idle'));
 
   if (moveObj.captured) {
     S.capturedOpp.push((S.myColor==='white'?'w':'b') + moveObj.captured.toUpperCase());

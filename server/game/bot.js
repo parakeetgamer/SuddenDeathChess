@@ -32,7 +32,7 @@ class BotPlayer {
 
   scheduleMove() {
     if (!this.active || this.session.over) return;
-    const delay = 600 + Math.random() * 1500;
+    const delay = 800 + Math.random() * Math.random() * 4500; // human-ish: usually quick, sometimes long
     setTimeout(() => {
       try {
         this.makeMove();
