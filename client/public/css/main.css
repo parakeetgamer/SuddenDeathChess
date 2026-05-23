@@ -406,9 +406,53 @@ body {
   grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
   width:min(64vw,580px); height:min(64vw,580px);
   border:2px solid var(--border2);
-  box-shadow: 0 0 60px rgba(0,0,0,.6);
-  transition:box-shadow .3s;
+  transition: box-shadow .35s ease;
+  /* ambient: slow white breathing pulse around the edges */
+  animation: boardIdlePulse 3.4s ease-in-out infinite;
 }
+@keyframes boardIdlePulse {
+  0%,100% { box-shadow: 0 0 18px rgba(245,241,234,.10), 0 0 60px rgba(0,0,0,.6); }
+  50%     { box-shadow: 0 0 30px rgba(245,241,234,.30), 0 0 60px rgba(0,0,0,.6); }
+}
+
+/* JUDGING — yellow, quicker pulse while the engine decides */
+.board.bg-judging {
+  animation: boardJudge 0.9s ease-in-out infinite;
+}
+@keyframes boardJudge {
+  0%,100% { box-shadow: 0 0 0 2px rgba(245,197,24,.5), 0 0 28px rgba(245,197,24,.4); }
+  50%     { box-shadow: 0 0 0 3px rgba(245,197,24,.9), 0 0 55px rgba(245,197,24,.8); }
+}
+
+/* VERDICT — solid glows, scaled by magnitude. animation:none overrides the pulse */
+.board.bg-good {
+  animation: none;
+  box-shadow: 0 0 0 3px var(--mint), 0 0 45px rgba(52,211,153,.55);
+}
+.board.bg-supergood {
+  animation: boardSuperGood 0.5s ease-out;
+  box-shadow: 0 0 0 5px var(--mint), 0 0 80px rgba(52,211,153,.95), 0 0 140px rgba(52,211,153,.5);
+}
+@keyframes boardSuperGood {
+  0%   { box-shadow: 0 0 0 3px var(--mint), 0 0 40px rgba(52,211,153,.6); }
+  40%  { box-shadow: 0 0 0 8px var(--mint), 0 0 110px rgba(52,211,153,1), 0 0 180px rgba(52,211,153,.7); }
+  100% { box-shadow: 0 0 0 5px var(--mint), 0 0 80px rgba(52,211,153,.95), 0 0 140px rgba(52,211,153,.5); }
+}
+.board.bg-bad {
+  animation: none;
+  box-shadow: 0 0 0 3px var(--crimson), 0 0 45px rgba(225,29,46,.6);
+}
+.board.bg-superbad {
+  animation: boardSuperBad 0.5s ease-out;
+  box-shadow: 0 0 0 6px var(--crimson), 0 0 90px rgba(225,29,46,1), 0 0 160px rgba(225,29,46,.6);
+}
+@keyframes boardSuperBad {
+  0%   { box-shadow: 0 0 0 3px var(--crimson), 0 0 40px rgba(225,29,46,.7); }
+  35%  { box-shadow: 0 0 0 10px var(--crimson), 0 0 130px rgba(225,29,46,1), 0 0 220px rgba(225,29,46,.8); }
+  100% { box-shadow: 0 0 0 6px var(--crimson), 0 0 90px rgba(225,29,46,1), 0 0 160px rgba(225,29,46,.6); }
+}
+
+/* legacy classes kept harmless */
 .board.fg { box-shadow:0 0 0 3px var(--ember), 0 0 60px rgba(255,122,26,.4); }
 .board.fr { box-shadow:0 0 0 3px var(--crimson), 0 0 60px rgba(225,29,46,.5); }
 

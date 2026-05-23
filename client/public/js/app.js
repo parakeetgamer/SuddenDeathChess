@@ -671,10 +671,24 @@ async function onSqClick(e) {
 
 // Full-screen green (safe) / red (blunder) flash on every verdict.
 function verdictFlash(color) {
-  const f = document.createElement('div');
-  f.className = 'verdict-flash ' + color;
-  document.body.appendChild(f);
-  setTimeout(() => f.remove(), 520);
+  // Superseded by the board-edge glow (boardGlow). Kept as a no-op so old
+  // call sites don't break.
+}
+
+// Board-edge status glow. states: 'idle' | 'judging' | 'good' | 'supergood' | 'bad' | 'superbad'
+let _boardGlowTimer = null;
+function boardGlow(state, holdMs) {
+  const b = document.getElementById('board');
+  if (!b) return;
+  b.classList.remove('bg-judging','bg-good','bg-supergood','bg-bad','bg-superbad');
+  if (_boardGlowTimer) { clearTimeout(_boardGlowTimer); _boardGlowTimer = null; }
+  if (!state || state === 'idle') return;  // back to the ambient white pulse
+  b.classList.add('bg-' + state);
+  if (holdMs) {
+    _boardGlowTimer = setTimeout(() => {
+      b.classList.remove('bg-' + state);
+    }, holdMs);
+  }
 }
 
 // ══════════════════════════════════════════
@@ -740,6 +754,7 @@ async function executeMyMove(from, to) {
 
   // JUDGING: eval true before AND after positions, fresh, in parallel.
   S.judging = true;
+  boardGlow('judging');
   const fenAfter = S.chess.fen();
 
   const [evalBeforeWhitePOV, evalAfterWhitePOV] = await Promise.all([
@@ -820,7 +835,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
     S.gameOver = true;
     stopLocalTimer();
-    verdictFlash('red');
+    boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
     explodePiece(to);
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
@@ -869,7 +884,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
   }
 
   // ════════════ SAFE ════════════
-  verdictFlash('green');
+  boardGlow(playerPovDelta >= 1.5 ? 'supergood' : 'good', 1100);
   // Quick green pulse on the square you survived
   const safeSq = document.querySelector('#board [data-sq="' + to + '"]');
   if (safeSq) {
