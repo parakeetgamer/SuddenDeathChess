@@ -863,6 +863,57 @@ async function executeMyMove(from, to) {
 
 // Builds blunderDetail, decides safe vs blunder, drives reveal + networking.
 // Teachable replay on blunder: undo the move, show the best move, then fade out.
+// Draw an arrow over the board from one square to another. Knights get an L-bend.
+function drawBestArrow(fromSq, toSq, isKnight) {
+  const board = document.getElementById('board');
+  if (!board) return null;
+  const rect = board.getBoundingClientRect();
+  const cell = rect.width / 8;
+  const flipped = S.myColor === 'black';
+  // square name -> pixel center relative to board
+  const center = (sq) => {
+    let file = sq.charCodeAt(0) - 97;        // a..h -> 0..7
+    let rank = parseInt(sq[1]) - 1;          // 1..8 -> 0..7
+    let col = flipped ? 7 - file : file;
+    let row = flipped ? rank : 7 - rank;
+    return { x: col * cell + cell/2, y: row * cell + cell/2 };
+  };
+  const a = center(fromSq), b = center(toSq);
+
+  let pathD;
+  if (isKnight) {
+    // L-shape: go the LONG axis first (2 squares), then bend to the target.
+    const dx = b.x - a.x, dy = b.y - a.y;
+    let bend;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // horizontal long leg, then vertical
+      bend = { x: b.x, y: a.y };
+    } else {
+      // vertical long leg, then horizontal
+      bend = { x: a.x, y: b.y };
+    }
+    pathD = 'M ' + a.x + ' ' + a.y + ' L ' + bend.x + ' ' + bend.y + ' L ' + b.x + ' ' + b.y;
+  } else {
+    pathD = 'M ' + a.x + ' ' + a.y + ' L ' + b.x + ' ' + b.y;
+  }
+
+  let ov = document.getElementById('best-arrow');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'best-arrow';
+  ov.style.cssText = 'position:absolute;left:0;top:0;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
+  ov.innerHTML =
+    '<svg width="' + rect.width + '" height="' + rect.height + '" style="overflow:visible">' +
+    '<defs><marker id="ah" markerWidth="6" markerHeight="6" refX="3.5" refY="3" orient="auto">' +
+    '<path d="M0,0 L6,3 L0,6 Z" fill="#34D399"/></marker></defs>' +
+    '<path d="' + pathD + '" fill="none" stroke="#34D399" stroke-width="' + (cell*0.16).toFixed(1) +
+    '" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ah)" opacity="0.92"/>' +
+    '</svg>';
+  // position the overlay over the board (board-wrap is positioned relative)
+  board.parentElement.appendChild(ov);
+  return ov;
+}
+
 async function blunderReplay(fenBefore, badFrom, badTo) {
   const board = document.getElementById('board');
   // 1. undo my move so the board shows the pre-blunder position
@@ -884,16 +935,27 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
   const best = await sfBestMove(fenBefore, 1000);
 
   if (best) {
-    // highlight from/to squares
     const fEl = document.querySelector('#board [data-sq="' + best.from + '"]');
     const tEl = document.querySelector('#board [data-sq="' + best.to + '"]');
     if (fEl) fEl.classList.add('best-from');
     if (tEl) tEl.classList.add('best-to');
+    // is it a knight move? from-square piece type, or L-shaped geometry.
+    let isKnight = false;
+    try {
+      const pc = S.chess.get(best.from);
+      isKnight = pc && pc.type === 'n';
+    } catch(e) {}
+    if (!isKnight) {
+      const df = Math.abs(best.from.charCodeAt(0) - best.to.charCodeAt(0));
+      const dr = Math.abs(parseInt(best.from[1]) - parseInt(best.to[1]));
+      isKnight = (df === 1 && dr === 2) || (df === 2 && dr === 1);
+    }
+    const arrow = drawBestArrow(best.from, best.to, isKnight);
     lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
-    // hold so the player can see it
-    await new Promise(r => setTimeout(r, 2200));
+    await new Promise(r => setTimeout(r, 2400));
     if (fEl) fEl.classList.remove('best-from');
     if (tEl) tEl.classList.remove('best-to');
+    if (arrow) arrow.remove();
   } else {
     lbl.textContent = 'No clear best move';
     await new Promise(r => setTimeout(r, 1200));
@@ -1008,24 +1070,21 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
     document.body.appendChild(sub);
     setTimeout(() => { flash.remove(); text.remove(); sub.remove(); }, 2500);
 
-    // Failsafe local game-over if server is slow
-    setTimeout(() => {
-      if (!S._gameOverFired && !document.getElementById('result-modal').classList.contains('show')) {
-        console.log('[BLUNDER] Server slow, forcing local game over');
-        onGameOver({
-          type: 'game_over',
-          reason: 'You blundered — ' + moveObj.san,
-          blunderDetail,
-          winner: S.myColor === 'white' ? 'black' : 'white',
-          winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
-          ratings: {
-            white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
-            black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
-          },
-          noAdsUnlocked: { white: false, black: false }
-        });
-      }
-    }, 1500);
+    // Replay has finished (awaited above). Now show the result — no race.
+    if (!S._gameOverFired && !document.getElementById('result-modal').classList.contains('show')) {
+      onGameOver({
+        type: 'game_over',
+        reason: 'You blundered — ' + moveObj.san,
+        blunderDetail,
+        winner: S.myColor === 'white' ? 'black' : 'white',
+        winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
+        ratings: {
+          white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
+          black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
+        },
+        noAdsUnlocked: { white: false, black: false }
+      });
+    }
     return;
   }
 
