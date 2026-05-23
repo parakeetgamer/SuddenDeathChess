@@ -28,6 +28,7 @@ function handleConnection(ws) {
       case 'move':       return doMove(ws, msg);
       case 'checkmate':  return doCheckmate(ws, msg);
       case 'blunder':    return doBlunder(ws, msg);
+      case 'opp_blunder': return doOppBlunder(ws, msg);
       case 'draw':       return doDraw(ws);
       case 'resign':     return doResign(ws);
       case 'ping':       return send(ws, { type: 'pong' });
@@ -236,6 +237,16 @@ function doBlunder(ws, msg) {
   session.blunderDetail = msg.detail || null;
   endGame(session, color === 'white' ? 'black' : 'white',
     ws.player.username + ' blundered — ' + msg.san);
+}
+
+function doOppBlunder(ws, msg) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  const color = colorOf(session, ws);
+  if (!color) return;
+  // The REPORTING player wins — their opponent blundered.
+  console.log('[OPP_BLUNDER]', ws.player.username, 'wins, opp blundered on', msg.san);
+  endGame(session, color, 'Opponent blundered — ' + msg.san);
 }
 
 function doCheckmate(ws, msg) {

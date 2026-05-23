@@ -999,43 +999,89 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 }
 
 // Opponent's move comes from server
-function onOpponentMove(msg) {
+async function onOpponentMove(msg) {
   if (!S.chess || msg.color === S.myColor) return;
   if (msg.isBlunder) return; // server will send game_over
+
+  // Capture the position BEFORE their move so we can judge it like ours.
+  const fenBeforeOpp = S.chess.fen();
 
   const moveObj = S.chess.move({ from: msg.from, to: msg.to, promotion: 'q' });
   if (!moveObj) return;
 
   S.lastFrom = msg.from; S.lastTo = msg.to;
   if (moveObj.captured) sndCapture(); else sndMove();
-
-  // Opponent move: same judging beat as mine — lock the board during eval.
-  S.judging = true;
-  boardGlow('judging');
-  sfEval(S.chess.fen()).then(ev => {
-    const oppStanding = S.myColor === 'white' ? ev : -ev;
-    boardGlow(oppStanding < -1.5 ? 'bad' : oppStanding > 1.5 ? 'good' : 'idle', 1100);
-    S.judging = false;
-  }).catch(()=>{ boardGlow('idle'); S.judging = false; });
-
   if (moveObj.captured) {
     S.capturedOpp.push((S.myColor==='white'?'w':'b') + moveObj.captured.toUpperCase());
     updateCaptures();
   }
-
-  S.evalScore = msg.evalAfter || S.evalScore;
   S.moveHistory.push({ san: moveObj.san, color: msg.color, quality: '' });
-
   updateMoveLog();
-  updateEvalUI();
   renderBoard();
+
+  // JUDGING: lock the board, eval their before+after, same as my moves.
+  S.judging = true;
+  boardGlow('judging');
+  const fenAfterOpp = S.chess.fen();
+
+  let evalBeforeW = 0, evalAfterW = 0;
+  try {
+    [evalBeforeW, evalAfterW] = await Promise.all([
+      sfEval(fenBeforeOpp),
+      sfEval(fenAfterOpp),
+    ]);
+  } catch(e) {}
+
+  S.judging = false;
+  S.evalScore = evalAfterW;
+  updateEvalUI();
+
+  // Opponent's drop (from THEIR POV). Opp is the color that isn't mine.
+  const oppColor = S.myColor === 'white' ? 'black' : 'white';
+  const rawDropOpp = oppColor === 'white'
+    ? evalBeforeW - evalAfterW
+    : evalAfterW - evalBeforeW;
+  const TEMPO_OFFSET = 0.7;
+  const oppDrop = rawDropOpp - TEMPO_OFFSET;
+
+  console.log('[SF opp]', 'before(W):', evalBeforeW.toFixed(2),
+    'after(W):', evalAfterW.toFixed(2), 'oppDrop:', oppDrop.toFixed(2));
+
+  // Glow from MY POV: my standing after their move.
+  const myStanding = S.myColor === 'white' ? evalAfterW : -evalAfterW;
+
+  // Did the OPPONENT blunder? Same threshold as me. If so, I win instantly.
+  const BLUNDER_THRESHOLD = 1.5;
+  if (oppDrop >= BLUNDER_THRESHOLD && !S.gameOver) {
+    boardGlow(oppDrop >= 3.0 ? 'supergood' : 'good', 1600);
+    sndWin();
+    wsSend({ type: 'opp_blunder', san: moveObj.san });
+    // Failsafe local win if server is slow / it's a bot game.
+    setTimeout(() => {
+      if (!S._gameOverFired && !document.getElementById('result-modal').classList.contains('show')) {
+        onGameOver({
+          type: 'game_over',
+          reason: 'Opponent blundered — ' + moveObj.san,
+          winner: S.myColor,
+          winnerUsername: S.user ? S.user.username : 'You',
+          ratings: {
+            white: { old: S.user.rating, new: S.user.rating + 12, delta: 12 },
+            black: { old: S.user.rating, new: S.user.rating + 12, delta: 12 }
+          },
+          noAdsUnlocked: { white: false, black: false }
+        });
+      }
+    }, 1200);
+    return;
+  }
+
+  // Normal: glow from my POV, hand the clock back to me.
+  boardGlow(myStanding > 1.5 ? 'good' : myStanding < -1.5 ? 'bad' : 'idle', 1100);
   updateTurnUI();
   startLocalTimer();
 
-  // Pre-eval the position NOW (during my thinking time) so the suspense beat
-  // after I move only needs the AFTER eval. Cached in S.preMoveEval.
-  S.preMoveEval = null;
-  sfEvalLatest(S.chess.fen()).then(v => { S.preMoveEval = v; }).catch(()=>{});
+  // Cache my pre-move baseline for my upcoming move.
+  S.preMoveEval = evalAfterW;
 }
 
 // Server timer sync
