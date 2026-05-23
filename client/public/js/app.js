@@ -641,7 +641,7 @@ function renderBoard() {
 }
 
 async function onSqClick(e) {
-  if (!S.chess || S.gameOver) return;
+  if (!S.chess || S.gameOver || S.judging) return;
   if (S.chess.turn() !== S.myColor[0]) return; // not my turn
 
   const squareName = e.currentTarget.dataset.sq;
@@ -696,6 +696,72 @@ function boardGlow(state, holdMs) {
 // ══════════════════════════════════════════
 // (judging is now minimal: executeMyMove awaits the eval, then verdictFlash green/red)
 
+// Crack + shatter the whole board outward from the blundered square.
+function shatterBoard(toSquare) {
+  const board = document.getElementById('board');
+  if (!board) return;
+  const rect = board.getBoundingClientRect();
+  const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
+  let ox = 0.5, oy = 0.5;
+  if (sq) {
+    const sr = sq.getBoundingClientRect();
+    ox = (sr.left + sr.width/2 - rect.left) / rect.width;
+    oy = (sr.top + sr.height/2 - rect.top) / rect.height;
+  }
+
+  // violent shake on the whole game
+  const game = document.getElementById('s-game');
+  if (game) { game.classList.add('shatter-shake'); setTimeout(()=>game.classList.remove('shatter-shake'), 700); }
+
+  // SVG crack lines radiating from the blunder origin
+  const ov = document.createElement('div');
+  ov.className = 'shatter-overlay';
+  ov.style.left = rect.left + 'px';
+  ov.style.top = rect.top + 'px';
+  ov.style.width = rect.width + 'px';
+  ov.style.height = rect.height + 'px';
+  const cx = (ox*100).toFixed(1), cy = (oy*100).toFixed(1);
+  let cracks = '';
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    const ang = (i/N)*Math.PI*2 + Math.random()*0.5;
+    let px = ox*100, py = oy*100, d = 'M' + px + ',' + py;
+    let len = 14 + Math.random()*10;
+    for (let seg = 0; seg < 4; seg++) {
+      const jit = (Math.random()-0.5)*18;
+      px += Math.cos(ang)*len + Math.cos(ang+1.57)*jit;
+      py += Math.sin(ang)*len + Math.sin(ang+1.57)*jit;
+      d += ' L' + px.toFixed(1) + ',' + py.toFixed(1);
+      len *= 1.1;
+    }
+    cracks += '<path d="' + d + '" />';
+  }
+  ov.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">' +
+    '<g stroke="#fff" stroke-width="0.5" fill="none" opacity="0.9">' + cracks + '</g>' +
+    '<circle cx="'+cx+'" cy="'+cy+'" r="2" fill="#fff"/></svg>';
+  document.body.appendChild(ov);
+
+  // fragment shards flying off
+  const frag = document.createElement('div');
+  frag.className = 'shatter-frags';
+  frag.style.left = rect.left + 'px'; frag.style.top = rect.top + 'px';
+  frag.style.width = rect.width + 'px'; frag.style.height = rect.height + 'px';
+  for (let i = 0; i < 16; i++) {
+    const f = document.createElement('div');
+    f.className = 'frag';
+    f.style.left = (Math.random()*85) + '%';
+    f.style.top = (Math.random()*85) + '%';
+    f.style.setProperty('--fx', ((Math.random()-0.5)*400).toFixed(0)+'px');
+    f.style.setProperty('--fy', (200 + Math.random()*300).toFixed(0)+'px');
+    f.style.setProperty('--fr', ((Math.random()-0.5)*720).toFixed(0)+'deg');
+    f.style.setProperty('--fd', (Math.random()*0.15).toFixed(2)+'s');
+    frag.appendChild(f);
+  }
+  document.body.appendChild(frag);
+
+  setTimeout(() => { ov.remove(); frag.remove(); }, 1600);
+}
+
 // Spawn the particle/shockwave explosion on the blundered square.
 function explodePiece(toSquare) {
   const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
@@ -742,7 +808,7 @@ async function executeMyMove(from, to) {
   stopLocalTimer();
   S.timerVal = 10;
   updateTimerUI();
-
+  // hand the clock to the opponent — pause our display until it's our turn again
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
   S.selected = null; S.legalMoves = [];
@@ -844,6 +910,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
     stopLocalTimer();
     boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
     explodePiece(to);
+    shatterBoard(to);
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
     // Dramatic red reveal
