@@ -84,7 +84,7 @@ const PIECE_SVG = {
 // Worker for every eval — which is proven reliable — and terminate it when done.
 // Returns eval in pawns, WHITE'S PERSPECTIVE. Resolves 0 on any failure.
 
-const SF = { THINK_MS: 700 };
+const SF = { THINK_MS: 1500 };
 
 function initStockfish() { /* no-op: workers are created per eval now */ }
 
