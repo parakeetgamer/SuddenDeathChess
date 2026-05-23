@@ -906,7 +906,7 @@ function drawBestArrow(fromSq, toSq, isKnight) {
     '<svg width="' + rect.width + '" height="' + rect.height + '" style="overflow:visible">' +
     '<defs><marker id="ah" markerWidth="6" markerHeight="6" refX="3.5" refY="3" orient="auto">' +
     '<path d="M0,0 L6,3 L0,6 Z" fill="#34D399"/></marker></defs>' +
-    '<path d="' + pathD + '" fill="none" stroke="#34D399" stroke-width="' + (cell*0.16).toFixed(1) +
+    '<path d="' + pathD + '" fill="none" stroke="#34D399" stroke-width="' + (cell*0.10).toFixed(1) +
     '" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ah)" opacity="0.92"/>' +
     '</svg>';
   // position the overlay over the board (board-wrap is positioned relative)
@@ -952,7 +952,7 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
     }
     const arrow = drawBestArrow(best.from, best.to, isKnight);
     lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
-    await new Promise(r => setTimeout(r, 6000));
+    await new Promise(r => setTimeout(r, 12000));
     if (fEl) fEl.classList.remove('best-from');
     if (tEl) tEl.classList.remove('best-to');
     if (arrow) arrow.remove();
