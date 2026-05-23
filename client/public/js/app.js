@@ -791,6 +791,114 @@ function shatterBoard(toSquare) {
 }
 
 // Spawn the particle/shockwave explosion on the blundered square.
+// Randomly selects one of five blunder effects on the blundered square.
+function blunderEffect(toSquare) {
+  const fx = ['shatter', 'melt', 'blood', 'tilt', 'implode'];
+  const pick = fx[Math.floor(Math.random() * fx.length)];
+  console.log('[BLUNDER FX]', pick);
+  switch (pick) {
+    case 'shatter': return explodePiece(toSquare);
+    case 'melt':    return fxMelt(toSquare);
+    case 'blood':   return fxBlood(toSquare);
+    case 'tilt':    return fxTilt(toSquare);
+    case 'implode': return fxImplode(toSquare);
+  }
+}
+
+function fxSquareEl(sq) { return document.querySelector('#board [data-sq="' + sq + '"]'); }
+
+// MELT — the piece drips/dissolves into particles and fades.
+function fxMelt(toSquare) {
+  const sq = fxSquareEl(toSquare); if (!sq) return;
+  const piece = sq.querySelector('img.piece');
+  if (piece) piece.classList.add('melting-piece');
+  const drips = document.createElement('div');
+  drips.className = 'melt-drips';
+  for (let i = 0; i < 7; i++) {
+    const d = document.createElement('div');
+    d.className = 'melt-drip';
+    d.style.left = (10 + Math.random() * 80) + '%';
+    d.style.setProperty('--mdelay', (Math.random() * 0.25).toFixed(2) + 's');
+    d.style.setProperty('--mh', (40 + Math.random() * 50).toFixed(0) + '%');
+    drips.appendChild(d);
+  }
+  sq.appendChild(drips);
+  setTimeout(() => { drips.remove(); if (piece) piece.classList.remove('melting-piece'); }, 1300);
+}
+
+// BLOOD — red seeps from the square and spreads to neighbors.
+function fxBlood(toSquare) {
+  const sq = fxSquareEl(toSquare); if (!sq) return;
+  const pool = document.createElement('div');
+  pool.className = 'blood-pool';
+  sq.appendChild(pool);
+  // spread to up to 4 neighbors
+  const file = toSquare.charCodeAt(0), rank = parseInt(toSquare[1]);
+  const neighbors = [[1,0],[-1,0],[0,1],[0,-1]];
+  neighbors.forEach(([df, dr], i) => {
+    const nf = String.fromCharCode(file + df), nr = rank + dr;
+    if (nf < 'a' || nf > 'h' || nr < 1 || nr > 8) return;
+    const nsq = fxSquareEl(nf + nr);
+    if (!nsq) return;
+    const sp = document.createElement('div');
+    sp.className = 'blood-spread';
+    sp.style.setProperty('--bdelay', (0.15 + i * 0.08).toFixed(2) + 's');
+    nsq.appendChild(sp);
+    setTimeout(() => sp.remove(), 2000);
+  });
+  setTimeout(() => pool.remove(), 2000);
+}
+
+// TILT — whole board tips in 3D and pieces slide off.
+function fxTilt(toSquare) {
+  const board = document.getElementById('board');
+  if (!board) return;
+  board.classList.add('board-tilt');
+  board.querySelectorAll('img.piece').forEach((pc, i) => {
+    pc.style.setProperty('--slidex', ((Math.random() * 2 - 1) * 60).toFixed(0) + 'px');
+    pc.style.setProperty('--sdelay', (Math.random() * 0.3).toFixed(2) + 's');
+    pc.classList.add('piece-sliding');
+  });
+  setTimeout(() => {
+    board.classList.remove('board-tilt');
+    board.querySelectorAll('img.piece').forEach(pc => {
+      pc.classList.remove('piece-sliding');
+      pc.style.removeProperty('--slidex'); pc.style.removeProperty('--sdelay');
+    });
+  }, 1500);
+}
+
+// IMPLODE — the square caves in, pulling neighbors toward it (black hole).
+function fxImplode(toSquare) {
+  const sq = fxSquareEl(toSquare); if (!sq) return;
+  const hole = document.createElement('div');
+  hole.className = 'implode-hole';
+  sq.appendChild(hole);
+  const piece = sq.querySelector('img.piece');
+  if (piece) piece.classList.add('imploding-piece');
+  const file = toSquare.charCodeAt(0), rank = parseInt(toSquare[1]);
+  for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) {
+    if (df === 0 && dr === 0) continue;
+    const nf = String.fromCharCode(file + df), nr = rank + dr;
+    if (nf < 'a' || nf > 'h' || nr < 1 || nr > 8) continue;
+    const nsq = fxSquareEl(nf + nr);
+    const npc = nsq && nsq.querySelector('img.piece');
+    if (npc) {
+      npc.style.setProperty('--pullx', (-df * 40).toFixed(0) + 'px');
+      npc.style.setProperty('--pully', (dr * 40).toFixed(0) + 'px');
+      npc.classList.add('pulled-piece');
+    }
+  }
+  setTimeout(() => {
+    hole.remove();
+    if (piece) piece.classList.remove('imploding-piece');
+    document.querySelectorAll('#board img.pulled-piece').forEach(pc => {
+      pc.classList.remove('pulled-piece');
+      pc.style.removeProperty('--pullx'); pc.style.removeProperty('--pully');
+    });
+  }, 1300);
+}
+
 function explodePiece(toSquare) {
   const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
   if (!sq) return;
@@ -1052,8 +1160,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
 
     // Drama beat first
     boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
-    explodePiece(to);
-    shatterBoard(to);
+    blunderEffect(to);
     sndBlunder();
 
     // Then: undo + show the best move, before the result screen appears.
