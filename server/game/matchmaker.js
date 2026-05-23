@@ -279,21 +279,31 @@ function endGame(session, winnerColor, reason) {
     const human = session.white;
     const humanWon = winnerColor === 'white';
     const delta = humanWon ? 15 : -12;
-    const newRating = Math.max(100, human.rating + delta);
-    db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
-      [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, newRating, human.id]);
-    const result = {
-      type: 'game_over', reason,
-      winner: winnerColor,
-      winnerUsername: humanWon ? human.username : session.bot.name,
-      blunderDetail: session.blunderDetail || null,
-      ratings: {
-        white: { old: human.rating, new: newRating, delta },
-        black: { old: session.bot.rating, new: session.bot.rating, delta: 0 }
-      },
-      noAdsUnlocked: { white: newRating >= 1600 && !human.no_ads, black: false }
-    };
-    send(session.whiteWs, result);
+    // Read the CURRENT rating from the DB — not the stale snapshot captured at
+    // connect time — so consecutive games don't overwrite each other.
+    db.get('SELECT rating, peak_rating, no_ads FROM users WHERE id=?', [human.id], (err, row) => {
+      const curRating = (row && typeof row.rating === 'number') ? row.rating : human.rating;
+      const curPeak   = (row && typeof row.peak_rating === 'number') ? row.peak_rating : curRating;
+      const curNoAds  = row ? row.no_ads : human.no_ads;
+      const newRating = Math.max(100, curRating + delta);
+      db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
+        [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, newRating, human.id]);
+      // Keep the in-memory player fresh for the NEXT game on this connection.
+      human.rating = newRating;
+      human.peak_rating = Math.max(curPeak, newRating);
+      const result = {
+        type: 'game_over', reason,
+        winner: winnerColor,
+        winnerUsername: humanWon ? human.username : session.bot.name,
+        blunderDetail: session.blunderDetail || null,
+        ratings: {
+          white: { old: curRating, new: newRating, delta },
+          black: { old: session.bot.rating, new: session.bot.rating, delta: 0 }
+        },
+        noAdsUnlocked: { white: newRating >= 1600 && !curNoAds, black: false }
+      };
+      send(session.whiteWs, result);
+    });
     activeGames.delete(session.id);
     return;
   }

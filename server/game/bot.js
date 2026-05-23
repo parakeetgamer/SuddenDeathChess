@@ -1,25 +1,44 @@
 const { Chess } = require('chess.js');
 
-const BOT_NAMES = [
-  'BlunderBot', 'CastleGhost', 'PawnStorm_AI', 'NightKnight',
-  'DeepBlunder', 'RookieBot', 'ForkMaster_AI', 'SilentBishop',
-  'ZugzwangBot', 'EndgameAI', 'TacticalGhost', 'CheckMateBot'
+// Opponent archetypes — each game rolls one for real variety in name,
+// strength, and play style.
+const ARCHETYPES = [
+  { key: 'beginner', label: 'Beginner', ratingMin: 700,  ratingMax: 1000, blunder: 0.18, capWeight: 1, names:
+    ['RookieRoger', 'OopsAllPawns', 'BlunderBot', 'NewbNigel', 'PawnPusher', 'CoffeeHouse'] },
+  { key: 'aggressive', label: 'Aggressive', ratingMin: 1000, ratingMax: 1500, blunder: 0.10, capWeight: 3, names:
+    ['PawnStorm_AI', 'GambitGremlin', 'TacticalGhost', 'ForkMaster_AI', 'SacAttack', 'WildBishop'] },
+  { key: 'solid', label: 'Solid', ratingMin: 1200, ratingMax: 1700, blunder: 0.05, capWeight: 1, names:
+    ['FortressBot', 'StoneWall_AI', 'CastleGhost', 'SilentBishop', 'ProphylaxisPro', 'SolidSam'] },
+  { key: 'sharp', label: 'Sharp', ratingMin: 1600, ratingMax: 2100, blunder: 0.025, capWeight: 2, names:
+    ['DeepNightmare', 'EndgameAI', 'ZugzwangBot', 'CheckMateBot', 'NightKnight', 'CalcMonster'] },
 ];
 
 const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const BOT_NAMES = ARCHETYPES.flatMap(a => a.names); // kept for compatibility
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 class BotPlayer {
   constructor(session, botColor, humanRating) {
     this.session = session;
     this.color = botColor;
     this.chess = new Chess();
-    this.name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+
+    // Roll an archetype. Bias slightly toward archetypes near the human's level
+    // so games are usually competitive, but allow the full spread for variety.
     const hr = humanRating || 1200;
-    this.rating = Math.max(600, Math.min(2200, hr + (Math.floor(Math.random() * 100) - 50)));
-    // Blunder chance: 25% at 800 rating, 5% at 1800, 2% at 2200
-    this.blunderChance = Math.max(0.01, 0.15 - (this.rating - 600) / 8000);
+    const arch = pick(ARCHETYPES);
+    this.archetype = arch.key;
+    this.name = pick(arch.names);
+    // Rating: within the archetype's band, nudged toward the human a little.
+    const bandMid = (arch.ratingMin + arch.ratingMax) / 2;
+    const raw = bandMid * 0.6 + hr * 0.4 + (Math.floor(Math.random() * 200) - 100);
+    this.rating = Math.max(arch.ratingMin, Math.min(arch.ratingMax, Math.round(raw)));
+    this.blunderChance = arch.blunder;
+    this.capWeight = arch.capWeight; // how much it favors captures/aggression
     this.active = true;
-    console.log('[BOT] created', this.name, 'rating', this.rating, 'blunder%', (this.blunderChance*100).toFixed(0));
+    console.log('[BOT] created', this.name, '(' + arch.label + ')',
+      'rating', this.rating, 'blunder%', (this.blunderChance*100).toFixed(0));
   }
 
   onMove(from, to) {
