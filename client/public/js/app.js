@@ -1047,6 +1047,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
     stopLocalTimer();
     // Tell the server immediately (so the result is recorded), but hold the
     // visual result until the teachable replay finishes.
+    S.replaying = true; S._pendingGameOver = null;
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
     // Drama beat first
@@ -1057,6 +1058,9 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
 
     // Then: undo + show the best move, before the result screen appears.
     await blunderReplay(fenBefore, from, to);
+    S.replaying = false;
+    // If the server's game_over arrived during the replay, show it now.
+    if (S._pendingGameOver) { const m = S._pendingGameOver; S._pendingGameOver = null; onGameOver(m); return; }
     const reactions = [
       { text: 'BLUNDER', sub: 'You hung that piece' },
       { text: 'CATASTROPHIC', sub: 'Game over, you' },
@@ -1417,6 +1421,8 @@ function startAutoRestartCountdown() {
 // ══════════════════════════════════════════
 function onGameOver(msg) {
   if (S._gameOverFired) { console.log('[GAME OVER] ignored duplicate'); return; }
+  // If the blunder replay is still playing, hold the result until it finishes.
+  if (S.replaying) { console.log('[GAME OVER] deferred until replay ends'); S._pendingGameOver = msg; return; }
   S._gameOverFired = true;
   console.log('[GAME OVER]', JSON.stringify(msg));
   S.gameOver = true;
