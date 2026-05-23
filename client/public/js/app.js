@@ -712,8 +712,8 @@ function explodePiece(toSquare) {
 async function executeMyMove(from, to) {
   if (S.judging || S.gameOver) return;
 
-  // Eval BEFORE the move — from cache only. NEVER block the click on the engine.
-  const evalBeforeWhitePOV = (S.preMoveEval !== null) ? S.preMoveEval : (S.evalScore || 0);
+  // Capture the TRUE position before the move (fresh baseline, no stale cache).
+  const fenBefore = S.chess.fen();
   S.preMoveEval = null;
 
   // Make the move — INSTANT.
@@ -738,12 +738,14 @@ async function executeMyMove(from, to) {
     updateCaptures();
   }
 
-  // JUDGING: cut to 3-2-1 countdown while the deep eval runs concurrently.
+  // JUDGING: eval true before AND after positions, fresh, in parallel.
   S.judging = true;
   const fenAfter = S.chess.fen();
 
-  // Minimal: just wait for the engine eval, then flash the board green/red.
-  const evalAfterWhitePOV = await sfEval(fenAfter);
+  const [evalBeforeWhitePOV, evalAfterWhitePOV] = await Promise.all([
+    sfEval(fenBefore),
+    sfEval(fenAfter),
+  ]);
 
   S.judging = false;
 
@@ -820,7 +822,6 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
     stopLocalTimer();
     verdictFlash('red');
     explodePiece(to);
-    { const ov = document.getElementById('battle-overlay'); if (ov) { ov.classList.add('show','routed'); setTimeout(()=>ov.classList.remove('show','routed'), 2200); } }
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
     // Dramatic red reveal
