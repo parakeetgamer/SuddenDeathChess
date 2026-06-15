@@ -1146,7 +1146,7 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
   lbl.className = 'replay-label show';
 
   // 3. ask the engine for the best move from that position
-  const best = await sfBestMove(fenBefore, 1000);
+  const best = null; // best-move reveal is now premium — gated on the result screen
 
   if (best) {
     const fEl = document.querySelector('#board [data-sq="' + best.from + '"]');
@@ -1171,8 +1171,8 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
     if (tEl) tEl.classList.remove('best-to');
     if (arrow) arrow.remove();
   } else {
-    lbl.textContent = 'No clear best move';
-    await new Promise(r => setTimeout(r, 1200));
+    lbl.textContent = 'Analyzing…';
+    await new Promise(r => setTimeout(r, 900));
   }
   lbl.classList.remove('show');
 
@@ -1699,6 +1699,7 @@ function onGameOver(msg) {
 
   const noAdsEl = document.getElementById('no-ads-unlock');
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
+  injectBestMoveCTA(iWon);
 
   loadLeaderboard();
   // Delay modal so dramatic blunder reaction plays first
@@ -1712,6 +1713,80 @@ function onGameOver(msg) {
     }
     startAutoRestartCountdown();
   }, 2800);
+}
+
+// ══════════════════════════════════════════
+// PREMIUM UPSELL  (best-move reveal is now a paid feature)
+// ══════════════════════════════════════════
+function injectBestMoveCTA(iWon) {
+  const old = document.getElementById('btn-see-best');
+  if (old) old.remove();
+  if (iWon) return;
+  const modal = document.querySelector('#result-modal .modal');
+  const btns = document.querySelector('#result-modal .modal-btns');
+  if (!modal || !btns) return;
+  const b = document.createElement('button');
+  b.id = 'btn-see-best';
+  b.textContent = '🔓 See Best Move';
+  b.style.cssText = 'width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:15px;margin-bottom:10px;font-family:Antonio,sans-serif;font-size:20px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:4px;box-shadow:0 0 24px rgba(255,122,26,.35)';
+  b.onmouseenter = () => { b.style.filter = 'brightness(1.08)'; };
+  b.onmouseleave = () => { b.style.filter = 'none'; };
+  b.onclick = showPremium;
+  modal.insertBefore(b, btns);
+}
+
+function showPremium() {
+  let ov = document.getElementById('premium-overlay');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'premium-overlay';
+  const benefits = [
+    ['🎯','Instant best-move reveal',"See exactly what you should have played — after every blunder."],
+    ['🧠','Personal coaching',"Spot the mistakes you keep making, and the moves that beat them."],
+    ['🚫','Zero ads. Forever.',"No banners, no interruptions. Just pure chess."],
+    ['♟️','Train at any level',"Play bots from total beginner to master strength, 600–2400."],
+    ['🎨','Premium texture packs',"Unlock exclusive boards, piece sets, and themes."],
+    ['📊','Deep game analysis',"Full history, rating trends, and accuracy breakdowns."],
+    ['⚡','Top 3 moves you missed',"See the strongest moves you didn't find, every game."],
+    ['👑','Premium badge',"Flex your status next to your name on the leaderboard."],
+  ];
+  const rows = benefits.map(function(item){
+    const icon = item[0], title = item[1], sub = item[2];
+    return '<div style="display:flex;gap:16px;align-items:flex-start;padding:15px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+      '<div style="font-size:30px;line-height:1;flex-shrink:0">' + icon + '</div>' +
+      '<div><div style="font-family:Antonio,sans-serif;font-size:24px;font-weight:700;color:#F5F1EA;letter-spacing:.5px;line-height:1.1">' + title + '</div>' +
+      '<div style="font-size:14px;color:#A1A1AA;margin-top:3px;line-height:1.35">' + sub + '</div></div></div>';
+  }).join('');
+
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2000;overflow-y:auto;background:radial-gradient(ellipse 90% 55% at 50% 0%, rgba(255,122,26,0.16) 0%, transparent 60%), #0E1116';
+  ov.innerHTML =
+    '<div style="position:relative;width:100%;max-width:480px;margin:0 auto;padding:26px 22px 44px">' +
+      '<button id="prem-close" style="position:absolute;top:16px;right:16px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#F5F1EA;font-size:20px;cursor:pointer;line-height:1">×</button>' +
+      '<div style="text-align:center;margin-top:6px;margin-bottom:10px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:5px;color:#FF7A1A;text-transform:uppercase">Sudden Death Premium</div>' +
+      '<h1 style="text-align:center;font-family:Antonio,sans-serif;font-size:40px;font-weight:700;line-height:1.04;color:#F5F1EA;margin-bottom:10px">STOP LOSING<br>THE SAME WAY TWICE</h1>' +
+      '<p style="text-align:center;font-size:15px;color:#A1A1AA;margin-bottom:22px;line-height:1.4">Every blunder is a lesson. Premium shows you the lesson — and turns you into a player who does not repeat it.</p>' +
+      '<div style="margin-bottom:22px">' + rows + '</div>' +
+      '<div style="text-align:center;margin-bottom:16px">' +
+        '<div style="display:inline-flex;align-items:baseline;gap:6px">' +
+          '<span style="font-family:Antonio,sans-serif;font-size:30px;font-weight:700;color:#F5F1EA">$4.99</span>' +
+          '<span style="font-size:13px;color:#A1A1AA">/ month</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:#52525B;margin-top:2px">that is just $0.16 a day — less than a single coffee</div>' +
+        '<div style="font-size:12px;color:#34D399;margin-top:6px">or $39.99 / year — save 33%</div>' +
+      '</div>' +
+      '<button id="prem-cta" style="width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:18px;font-family:Antonio,sans-serif;font-size:24px;font-weight:700;letter-spacing:3px;cursor:pointer;border-radius:6px;box-shadow:0 0 36px rgba(255,122,26,.4)">UNLOCK PREMIUM</button>' +
+      '<div style="text-align:center;font-size:11px;color:#52525B;margin-top:12px">Cancel anytime · No commitment</div>' +
+      '<div id="prem-later" style="text-align:center;font-size:13px;color:#A1A1AA;margin-top:18px;cursor:pointer;text-decoration:underline">Maybe later</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('prem-close').onclick = closePremium;
+  document.getElementById('prem-later').onclick = closePremium;
+  document.getElementById('prem-cta').onclick = () => toast('Premium checkout is coming soon!');
+}
+
+function closePremium() {
+  const ov = document.getElementById('premium-overlay');
+  if (ov) ov.remove();
 }
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
