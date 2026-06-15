@@ -398,6 +398,24 @@ document.getElementById('btn-find').addEventListener('click', () => {
 document.getElementById('nav-user-btn').addEventListener('click', showProfile);
 document.getElementById('btn-back-lobby').addEventListener('click', () => show('s-lobby'));
 
+document.getElementById('btn-logout').addEventListener('click', logout);
+function logout() {
+  try { wsSend({ type: 'cancel' }); } catch (e) {}
+  if (S.gameId && !S.gameOver) { try { wsSend({ type: 'resign' }); } catch (e) {} }
+  stopLocalTimer();
+  localStorage.removeItem('sdc_token');
+  S.token = null; S.user = null; S.ratingHistory = [];
+  S.gameId = null; S.gameOver = true; searching = false;
+  const findBtn = document.getElementById('btn-find');
+  if (findBtn) { findBtn.classList.remove('searching'); findBtn.textContent = 'FIND MATCH'; }
+  const ss = document.getElementById('search-status'); if (ss) ss.innerHTML = '';
+  const modal = document.getElementById('result-modal'); if (modal) modal.classList.remove('show');
+  const errEl = document.getElementById('err-msg'); if (errEl) errEl.textContent = '';
+  ['inp-user','inp-pass','inp-confirm'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  show('s-login');
+  toast('Logged out.');
+}
+
 // Live online counter (simulated with slight noise for now)
 let onlineBase = 800;
 setInterval(() => {
