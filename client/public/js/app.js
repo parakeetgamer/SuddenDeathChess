@@ -1797,7 +1797,7 @@ const REC = { active:false, recorder:null, chunks:[], raf:null, canvas:null, ctx
 
 function recPickMime() {
   if (typeof MediaRecorder === 'undefined') return '';
-  const cands = ['video/mp4;codecs=h264','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  const cands = ['video/mp4;codecs=avc1','video/mp4;codecs=h264','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
   for (const m of cands) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch(e){} }
   return '';
 }
@@ -1872,10 +1872,9 @@ function recDrawFrame() {
 async function startRecording(btn) {
   if (REC.active) return;
   REC.mime = recPickMime();
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !REC.mime) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
     toast('Recording is not supported on this browser.'); return;
   }
-  REC.ext = REC.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
   try {
     REC.userStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:640, height:480 }, audio:true });
   } catch(e) { toast('Camera/mic permission denied.'); return; }
@@ -1897,8 +1896,17 @@ async function startRecording(btn) {
   REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
 
   REC.chunks = [];
-  try { REC.recorder = new MediaRecorder(REC.stream, { mimeType: REC.mime, videoBitsPerSecond: 4000000 }); }
-  catch(e) { try { REC.recorder = new MediaRecorder(REC.stream); } catch(e2) { toast('Recording failed to start.'); stopRecordingCleanup(); return; } }
+  try {
+    REC.recorder = REC.mime
+      ? new MediaRecorder(REC.stream, { mimeType: REC.mime, videoBitsPerSecond: 4000000 })
+      : new MediaRecorder(REC.stream);
+  } catch(e) {
+    try { REC.recorder = new MediaRecorder(REC.stream); }
+    catch(e2) { toast('Recording failed to start.'); stopRecordingCleanup(); return; }
+  }
+  const actualMime = (REC.recorder && REC.recorder.mimeType) || REC.mime || '';
+  if (actualMime) REC.mime = actualMime;
+  REC.ext = (REC.mime.indexOf('webm') >= 0) ? 'webm' : 'mp4';
   REC.recorder.ondataavailable = (e) => { if (e.data && e.data.size) REC.chunks.push(e.data); };
   REC.recorder.onstop = () => finishRecording();
   REC.recorder.start();
