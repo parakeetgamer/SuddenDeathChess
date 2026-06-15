@@ -1829,9 +1829,18 @@ function recLoadPieces() {
 }
 
 function recDrawFrame() {
-  const ctx = REC.ctx, W = 540, H = 960;
+  const ctx = REC.ctx, W = 540, H = 960, now = Date.now();
+  const pulse = 0.5 + 0.5 * Math.sin(now / 170);
+
+  if (REC._prevJudging && !S.judging && !S.gameOver) REC._safeUntil = now + 950;
+  if (S.gameOver) REC._safeUntil = 0;
+  REC._prevJudging = S.judging;
+  const phase = S.gameOver ? 'death' : (S.judging ? 'judging' : (now < (REC._safeUntil || 0) ? 'safe' : 'idle'));
+
   ctx.fillStyle = '#0E1116'; ctx.fillRect(0,0,W,H);
-  const camH = 330;
+  ctx.textBaseline = 'middle';
+
+  const camH = 300;
   if (REC.video && REC.video.videoWidth) {
     const v = REC.video, vw = v.videoWidth, vh = v.videoHeight;
     const scale = Math.max(W/vw, camH/vh), dw = vw*scale, dh = vh*scale;
@@ -1839,16 +1848,21 @@ function recDrawFrame() {
     ctx.drawImage(v, (W-dw)/2, (camH-dh)/2, dw, dh); ctx.restore();
   } else { ctx.fillStyle = '#191D24'; ctx.fillRect(0,0,W,camH); }
 
-  ctx.fillStyle = 'rgba(14,17,22,0.85)'; ctx.fillRect(0, camH-44, W, 44);
-  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  ctx.font = '700 26px Antonio, sans-serif';
-  ctx.fillStyle = '#FF7A1A'; ctx.fillText('SUDDEN', 18, camH-22);
-  const sw = ctx.measureText('SUDDEN').width;
-  ctx.fillStyle = '#E11D2E'; ctx.fillText('DEATH', 18+sw+8, camH-22);
-  ctx.fillStyle = '#52525B'; ctx.font = '700 12px JetBrains Mono, monospace'; ctx.textAlign = 'right';
-  ctx.fillText('SUDDENDEATHCHESS', W-16, camH-22); ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(225,29,46,0.93)'; ctx.fillRect(0,0,W,50);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#FFFFFF';
+  ctx.font = '700 23px Antonio, sans-serif';
+  ctx.fillText('ONE WRONG MOVE = GAME OVER', W/2, 26);
 
-  const bSize = 500, bX = 20, bY = 380, cell = bSize/8;
+  const by = camH;
+  ctx.fillStyle = '#191D24'; ctx.fillRect(0, by, W, 46);
+  ctx.textAlign = 'left'; ctx.font = '700 24px Antonio, sans-serif';
+  ctx.fillStyle = '#FF7A1A'; ctx.fillText('SUDDEN', 16, by+24);
+  const sw = ctx.measureText('SUDDEN').width;
+  ctx.fillStyle = '#E11D2E'; ctx.fillText('DEATH', 16+sw+7, by+24);
+  const sw2 = ctx.measureText('DEATH').width;
+  ctx.fillStyle = '#F5F1EA'; ctx.fillText('CHESS', 16+sw+7+sw2+7, by+24);
+
+  const bSize = 500, bX = 20, bY = 362, cell = bSize/8;
   const flipped = S.myColor === 'black';
   for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
     const col = flipped ? 7-f : f, row = flipped ? r : 7-r;
@@ -1872,15 +1886,36 @@ function recDrawFrame() {
       try { ctx.drawImage(img, bX+col*cell+3, bY+row*cell+3, cell-6, cell-6); } catch(e) {}
     }
   }
-  ctx.strokeStyle = '#3D4A5C'; ctx.lineWidth = 2; ctx.strokeRect(bX, bY, bSize, bSize);
+  let bc = '#3D4A5C', bw = 2;
+  if (phase === 'judging') { bc = 'rgba(255,122,26,' + (0.45 + 0.55*pulse).toFixed(2) + ')'; bw = 6; }
+  else if (phase === 'death') { bc = '#E11D2E'; bw = 9; }
+  else if (phase === 'safe') { bc = '#34D399'; bw = 6; }
+  ctx.strokeStyle = bc; ctx.lineWidth = bw;
+  ctx.strokeRect(bX - bw/2, bY - bw/2, bSize + bw, bSize + bw);
 
+  const sy = bY + bSize + 34;
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#A1A1AA'; ctx.font = '700 15px JetBrains Mono, monospace';
-  ctx.fillText('One blunder = instant death', W/2, bY+bSize+46);
-  ctx.fillStyle = '#52525B'; ctx.font = '12px JetBrains Mono, monospace';
-  ctx.fillText('suddendeathchess.up.railway.app', W/2, H-28);
-  ctx.textAlign = 'left';
+  if (phase === 'judging') {
+    const dots = '.'.repeat(1 + (Math.floor(now/320) % 3));
+    ctx.fillStyle = 'rgba(255,122,26,' + (0.55 + 0.45*pulse).toFixed(2) + ')';
+    ctx.font = '700 30px Antonio, sans-serif';
+    ctx.fillText('DID IT SURVIVE' + dots, W/2, sy);
+  } else if (phase === 'death') {
+    ctx.fillStyle = '#E11D2E'; ctx.font = '700 40px Antonio, sans-serif';
+    ctx.fillText('\u2620 GAME OVER', W/2, sy);
+  } else if (phase === 'safe') {
+    ctx.fillStyle = '#34D399'; ctx.font = '700 38px Antonio, sans-serif';
+    ctx.fillText('\u2713 SURVIVED', W/2, sy);
+  } else {
+    ctx.fillStyle = '#A1A1AA'; ctx.font = '700 22px Antonio, sans-serif';
+    ctx.fillText('ONE BLUNDER = INSTANT DEATH', W/2, sy);
+  }
 
+  ctx.fillStyle = 'rgba(255,122,26,0.16)'; ctx.fillRect(0, H-52, W, 52);
+  ctx.fillStyle = '#FF7A1A'; ctx.font = '700 20px JetBrains Mono, monospace';
+  ctx.fillText('\u25B6 suddendeathchess.up.railway.app', W/2, H-26);
+
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   if (REC.active) REC.raf = requestAnimationFrame(recDrawFrame);
 }
 
