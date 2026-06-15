@@ -219,8 +219,9 @@ function connectWS() {
     if (S.token) {
       wsSend({ type: 'auth', token: S.token });
     }
-    // Keepalive ping every 25s
-    setInterval(() => wsSend({ type: 'ping' }), 25000);
+    // Keepalive ping every 25s (clear any previous one so reconnects don't stack)
+    if (S._pingInterval) clearInterval(S._pingInterval);
+    S._pingInterval = setInterval(() => wsSend({ type: 'ping' }), 25000);
   };
 
   S.ws.onmessage = (e) => {
@@ -1417,8 +1418,11 @@ function updateEvalUI() {
   const pct = Math.min(92, Math.max(8, 50+(score/6)*42));
   document.getElementById('eval-fill').style.height = pct+'%';
   document.getElementById('eval-num').textContent = (score>0?'+':'')+score.toFixed(1);
-  const lastDelta = S.moveHistory.length ? Math.abs(Math.min(0, S.evalScore - (S.moveHistory.length>1?S.moveHistory[S.moveHistory.length-2].eval||0:0))) : 0;
-  document.getElementById('bm-fill').style.width = Math.min(100,(lastDelta/2.0)*100)+'%';
+  // Danger meter: how much ground I lost since the previous eval (my POV).
+  const prevScore = (typeof S._meterPrevScore === 'number') ? S._meterPrevScore : score;
+  const lossDelta = Math.max(0, prevScore - score);
+  S._meterPrevScore = score;
+  document.getElementById('bm-fill').style.width = Math.min(100,(lossDelta/2.0)*100)+'%';
 }
 
 // ══════════════════════════════════════════

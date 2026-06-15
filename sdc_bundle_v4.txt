@@ -18,6 +18,7 @@ function tone(freq,type,dur,vol=.15,atk=.01,dec=.08){
 const sndMove    = () => tone(440,'sine',.05,.1,.005,.04);
 const sndCapture = () => tone(280,'sawtooth',.08,.14,.005,.07);
 const sndGood    = () => { tone(660,'sine',.08,.16,.01,.1); setTimeout(()=>tone(880,'sine',.06,.12,.005,.08),80); };
+const sndBrilliant = () => [523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.12,.16,.01,.1),i*70));
 const sndBlunder = () => { tone(220,'sawtooth',.15,.22,.01,.2); setTimeout(()=>tone(165,'sawtooth',.2,.22,.01,.25),100); setTimeout(()=>tone(110,'sawtooth',.3,.18,.01,.35),220); };
 const sndWin     = () => [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.15,.18,.01,.12),i*100));
 const sndTick    = () => tone(800,'square',.02,.07,.002,.02);
@@ -77,136 +78,133 @@ const PIECE_SVG = {
 // Returns evals in WHITE'S PERSPECTIVE always.
 // +N means white is up N pawns. -N means black is up.
 // Internally handles the side-to-move flip that UCI reports.
-const SF = {
-  engine: null,
-  ready: false,
-  queue: [],
-  current: null,   // { fen, resolve, latestCp, latestMate, sideToMove, timer }
-  THINK_MS: 700,
-  HARD_TIMEOUT_MS: 1500,
-};
+// ══════════════════════════════════════════
+// STOCKFISH — fresh worker per evaluation
+// ══════════════════════════════════════════
+// A persistent shared worker proved impossible to keep alive in this app
+// (engine went mute after the first handshake). Instead we spin up a brand-new
+// Worker for every eval — which is proven reliable — and terminate it when done.
+// Returns eval in pawns, WHITE'S PERSPECTIVE. Resolves 0 on any failure.
 
-function initStockfish() {
-  try {
-    SF.engine = new Worker('/js/stockfish.js');
-    SF.engine.onmessage = onStockfishMessage;
-    SF.engine.onerror = (e) => console.error('[SF] worker error:', e.message || e);
-    SF.engine.postMessage('uci');
-    SF.engine.postMessage('setoption name MultiPV value 1');
-    SF.engine.postMessage('setoption name Threads value 1');
-    SF.engine.postMessage('setoption name Hash value 16');
-    SF.engine.postMessage('ucinewgame');
-    SF.engine.postMessage('isready');
-    console.log('[SF] worker created');
-  } catch(e) {
-    console.error('[SF] init failed:', e);
-    SF.engine = null;
-  }
-}
+const SF = { THINK_MS: 1500 };
 
-function onStockfishMessage(event) {
-  const msg = typeof event === 'string' ? event : event.data;
-  if (!msg) return;
+function initStockfish() { /* no-op: workers are created per eval now */ }
 
-  if (msg === 'readyok' || msg.startsWith('uciok')) {
-    SF.ready = true;
-    pumpQueue();
-    return;
-  }
-
-  if (!SF.current) return;
-
-  if (msg.startsWith('info') && msg.includes(' pv ')) {
-    // Track latest score during search
-    const mateMatch = msg.match(/score mate (-?\d+)/);
-    const cpMatch = msg.match(/score cp (-?\d+)/);
-    if (mateMatch) {
-      SF.current.latestMate = parseInt(mateMatch[1]);
-      SF.current.latestCp = null;
-    } else if (cpMatch) {
-      SF.current.latestCp = parseInt(cpMatch[1]);
-      SF.current.latestMate = null;
-    }
-    return;
-  }
-
-  if (msg.startsWith('bestmove')) {
-    finishCurrent();
-    return;
-  }
-}
-
-function finishCurrent() {
-  if (!SF.current) return;
-  const c = SF.current;
-  SF.current = null;
-  if (c.timer) clearTimeout(c.timer);
-
-  // Convert side-to-move-perspective into white-perspective
-  let whiteCp;
-  if (c.latestMate !== null && c.latestMate !== undefined) {
-    // mate N from side-to-move's POV. +mate for stm = stm wins.
-    // Treat mate as ±100 pawns so it dominates blunder math.
-    const mateForStm = c.latestMate > 0 ? 100 : -100;
-    whiteCp = c.sideToMove === 'w' ? mateForStm * 100 : -mateForStm * 100;
-  } else if (c.latestCp !== null && c.latestCp !== undefined) {
-    whiteCp = c.sideToMove === 'w' ? c.latestCp : -c.latestCp;
-  } else {
-    whiteCp = 0;
-  }
-
-  c.resolve(whiteCp / 100); // pawns, white POV
-  pumpQueue();
-}
-
-function pumpQueue() {
-  if (!SF.ready || SF.current || SF.queue.length === 0) return;
-  const job = SF.queue.shift();
-  const sideToMove = job.fen.split(' ')[1]; // 'w' or 'b'
-  SF.current = {
-    fen: job.fen,
-    resolve: job.resolve,
-    latestCp: null,
-    latestMate: null,
-    sideToMove,
-    timer: null,
-  };
-  SF.engine.postMessage('position fen ' + job.fen);
-  SF.engine.postMessage('go movetime ' + (job.movetime || SF.THINK_MS));
-  SF.current.timer = setTimeout(() => {
-    console.warn('[SF] hard timeout, forcing stop for fen', job.fen);
-    try { SF.engine.postMessage('stop'); } catch(e) {}
-    // bestmove should arrive shortly after stop. If not, force-finish.
-    setTimeout(() => { if (SF.current === SF.current) finishCurrent(); }, 200);
-  }, SF.HARD_TIMEOUT_MS);
-}
-
-/**
- * Evaluate a FEN position. Returns eval in pawns, WHITE'S PERSPECTIVE.
- * +2.5 = white up 2.5 pawns. -2.5 = black up 2.5 pawns.
- * Resolves to 0 if engine unavailable.
- */
 function sfEval(fen, movetime) {
   return new Promise((resolve) => {
-    if (!SF.engine) { resolve(0); return; }
-    SF.queue.push({ fen, resolve, movetime });
-    pumpQueue();
+    let worker;
+    try {
+      worker = new Worker('/js/stockfish.js');
+    } catch (e) {
+      console.error('[SF] worker create failed:', e);
+      resolve(0);
+      return;
+    }
+
+    const sideToMove = fen.split(' ')[1]; // 'w' or 'b'
+    let latestCp = null, latestMate = null, latestDepth = 0;
+    let gotUciok = false, done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(hardTimer);
+      try { worker.terminate(); } catch (e) {}
+
+      let whiteCp;
+      if (latestMate !== null) {
+        const mateForStm = latestMate > 0 ? 100 : -100;
+        whiteCp = sideToMove === 'w' ? mateForStm * 100 : -mateForStm * 100;
+      } else if (latestCp !== null) {
+        whiteCp = sideToMove === 'w' ? latestCp : -latestCp;
+      } else {
+        whiteCp = 0;
+      }
+      console.log('[SF] depth', latestDepth || '?', 'eval(W):', (whiteCp/100).toFixed(2));
+      resolve(whiteCp / 100);
+    };
+
+    worker.onmessage = (event) => {
+      const msg = typeof event === 'string' ? event : event.data;
+      if (!msg || typeof msg !== 'string') return;
+      if (window._sfDebug) console.log('[SF raw]', msg);
+
+      if (!gotUciok) {
+        if (msg.startsWith('uciok')) {
+          gotUciok = true;
+          worker.postMessage('setoption name MultiPV value 1');
+          worker.postMessage('position fen ' + fen);
+          worker.postMessage('go movetime ' + (movetime || SF.THINK_MS));
+        }
+        return;
+      }
+
+      if (msg.startsWith('info') && msg.includes('score')) {
+        const d = msg.match(/ depth (\d+)/);
+        if (d) latestDepth = parseInt(d[1]);
+        const m = msg.match(/score mate (-?\d+)/);
+        const c = msg.match(/score cp (-?\d+)/);
+        if (m) { latestMate = parseInt(m[1]); latestCp = null; }
+        else if (c) { latestCp = parseInt(c[1]); latestMate = null; }
+        return;
+      }
+
+      if (msg.startsWith('bestmove')) {
+        finish();
+      }
+    };
+
+    worker.onerror = (e) => { console.error('[SF] worker error:', e && e.message); finish(); };
+
+    // Kick off the handshake. Poll uci until uciok (engine drops early commands).
+    let tries = 0;
+    const pollUci = setInterval(() => {
+      if (gotUciok || done || tries > 25) { clearInterval(pollUci); return; }
+      tries++;
+      worker.postMessage('uci');
+    }, 250);
+
+    // Hard timeout: whatever we have, resolve and clean up.
+    const hardTimer = setTimeout(() => {
+      clearInterval(pollUci);
+      console.warn('[SF] hard timeout for fen', fen);
+      finish();
+    }, (movetime || SF.THINK_MS) + 2500);
   });
 }
 
-// Fast, shallow eval used to calibrate the shake intensity the instant a move lands.
 function sfEvalShallow(fen) { return sfEval(fen, 150); }
 
-// Drop-stale variant: clears any QUEUED (not-yet-running) jobs first, so we
-// only ever evaluate the newest position the player cares about.
-function sfEvalLatest(fen) {
-  // Resolve any abandoned queued jobs to 0 so their awaiters don't hang
-  while (SF.queue.length) {
-    const stale = SF.queue.shift();
-    try { stale.resolve(0); } catch(e) {}
-  }
-  return sfEval(fen);
+// Returns engine's best move for a FEN as {from,to} or null. Blunder replay only.
+function sfBestMove(fen, movetime) {
+  return new Promise((resolve) => {
+    let worker;
+    try { worker = new Worker('/js/stockfish.js'); }
+    catch (e) { resolve(null); return; }
+    let gotUciok = false, done = false;
+    const fin = (mv) => { if (done) return; done = true; clearTimeout(ht); try { worker.terminate(); } catch(e){} resolve(mv); };
+    worker.onmessage = (event) => {
+      const msg = typeof event === 'string' ? event : event.data;
+      if (!msg || typeof msg !== 'string') return;
+      if (!gotUciok) {
+        if (msg.startsWith('uciok')) { gotUciok = true; worker.postMessage('position fen ' + fen); worker.postMessage('go movetime ' + (movetime || 1000)); }
+        return;
+      }
+      if (msg.startsWith('bestmove')) {
+        const uci = msg.split(/\s+/)[1];
+        if (uci && uci.length >= 4 && uci !== '(none)') fin({ from: uci.slice(0,2), to: uci.slice(2,4) });
+        else fin(null);
+      }
+    };
+    worker.onerror = () => fin(null);
+    let tries = 0;
+    const poll = setInterval(() => { if (gotUciok || done || tries > 25) { clearInterval(poll); return; } tries++; worker.postMessage('uci'); }, 250);
+    const ht = setTimeout(() => { clearInterval(poll); fin(null); }, (movetime || 1000) + 2500);
+  });
 }
+
+// No queue to clear anymore — each eval is independent. Kept for call-site compat.
+function sfEvalLatest(fen) { return sfEval(fen); }
 
 // ══════════════════════════════════════════
 // WEBSOCKET
@@ -484,6 +482,7 @@ function onGameStart(msg) {
   S.myColor = msg.color;
   S.gameId = msg.gameId;
   S.gameOver = false;
+  S._gameOverFired = false;
   S.selected = null; S.legalMoves = []; renderBoard();
   S.lastFrom = null; S.lastTo = null;
   S.moveHistory = [];
@@ -672,7 +671,7 @@ function renderBoard() {
 }
 
 async function onSqClick(e) {
-  if (!S.chess || S.gameOver) return;
+  if (!S.chess || S.gameOver || S.judging) return;
   if (S.chess.turn() !== S.myColor[0]) return; // not my turn
 
   const squareName = e.currentTarget.dataset.sq;
@@ -700,58 +699,253 @@ async function onSqClick(e) {
   renderBoard();
 }
 
-// ══════════════════════════════════════════
-// SUSPENSE BEAT — the moved piece shakes/swells, then defuses or explodes
-// ══════════════════════════════════════════
-let _suspenseHeart = null;
-let _judgeSq = null;
-
-function judgingPieceEl() {
-  if (!_judgeSq) return null;
-  const sq = document.querySelector('#board [data-sq="' + _judgeSq + '"]');
-  return sq ? sq.querySelector('img.piece') : null;
+// Full-screen green (safe) / red (blunder) flash on every verdict.
+function verdictFlash(color) {
+  // Superseded by the board-edge glow (boardGlow). Kept as a no-op so old
+  // call sites don't break.
 }
 
-function setShakeIntensity(danger) {
-  // danger 0..1 → drives the CSS --shake variable on the moved piece
-  const el = judgingPieceEl();
-  if (el) el.style.setProperty('--shake', danger.toFixed(3));
-}
-
-function startSuspense(toSquare) {
-  _judgeSq = toSquare;
-
-  // Dim overlay behind the board (no center text — the piece is the focus)
-  let ov = document.getElementById('suspense-overlay');
-  if (!ov) {
-    ov = document.createElement('div');
-    ov.id = 'suspense-overlay';
-    document.body.appendChild(ov);
+// Board-edge status glow. states: 'idle' | 'judging' | 'good' | 'supergood' | 'bad' | 'superbad'
+let _boardGlowTimer = null;
+function boardGlow(state, holdMs) {
+  const b = document.getElementById('board');
+  if (!b) return;
+  b.classList.remove('bg-judging','bg-good','bg-supergood','bg-bad','bg-superbad');
+  if (_boardGlowTimer) { clearTimeout(_boardGlowTimer); _boardGlowTimer = null; }
+  if (!state || state === 'idle') return;  // back to the ambient white pulse
+  b.classList.add('bg-' + state);
+  if (holdMs) {
+    _boardGlowTimer = setTimeout(() => {
+      b.classList.remove('bg-' + state);
+    }, holdMs);
   }
-  ov.classList.remove('reveal-safe','reveal-blunder');
-  ov.classList.add('show');
-
-  // The piece begins to tremble (starts at low intensity until shallow eval calibrates)
-  const el = judgingPieceEl();
-  if (el) {
-    el.style.setProperty('--shake', '0.12');
-    el.classList.add('judging-piece');
-  }
-
-  // Heartbeat
-  sndHeart();
-  _suspenseHeart = setInterval(sndHeart, 460);
 }
 
-function stopSuspense() {
-  if (_suspenseHeart) { clearInterval(_suspenseHeart); _suspenseHeart = null; }
-  const ov = document.getElementById('suspense-overlay');
-  if (ov) ov.classList.remove('show');
-  const el = judgingPieceEl();
-  if (el) { el.classList.remove('judging-piece'); el.style.removeProperty('--shake'); }
+// ══════════════════════════════════════════
+// PARKOUR JUDGING BEAT — blocky guy leaps a gap; eval decides stick vs faceplant
+// ══════════════════════════════════════════
+// (judging is now minimal: executeMyMove awaits the eval, then verdictFlash green/red)
+
+// Crack + shatter the whole board outward from the blundered square.
+function shatterBoard(toSquare) {
+  const board = document.getElementById('board');
+  if (!board) return;
+  const rect = board.getBoundingClientRect();
+  const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
+  let ox = 0.5, oy = 0.5;
+  if (sq) {
+    const sr = sq.getBoundingClientRect();
+    ox = (sr.left + sr.width/2 - rect.left) / rect.width;
+    oy = (sr.top + sr.height/2 - rect.top) / rect.height;
+  }
+
+  // violent shake on the whole game
+  const game = document.getElementById('s-game');
+  if (game) { game.classList.add('shatter-shake'); setTimeout(()=>game.classList.remove('shatter-shake'), 700); }
+
+  // SVG crack lines radiating from the blunder origin
+  const ov = document.createElement('div');
+  ov.className = 'shatter-overlay';
+  ov.style.left = rect.left + 'px';
+  ov.style.top = rect.top + 'px';
+  ov.style.width = rect.width + 'px';
+  ov.style.height = rect.height + 'px';
+  const cx = (ox*100).toFixed(1), cy = (oy*100).toFixed(1);
+  let cracks = '';
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    const ang = (i/N)*Math.PI*2 + Math.random()*0.5;
+    let px = ox*100, py = oy*100, d = 'M' + px + ',' + py;
+    let len = 14 + Math.random()*10;
+    for (let seg = 0; seg < 4; seg++) {
+      const jit = (Math.random()-0.5)*18;
+      px += Math.cos(ang)*len + Math.cos(ang+1.57)*jit;
+      py += Math.sin(ang)*len + Math.sin(ang+1.57)*jit;
+      d += ' L' + px.toFixed(1) + ',' + py.toFixed(1);
+      len *= 1.1;
+    }
+    cracks += '<path d="' + d + '" />';
+  }
+  ov.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">' +
+    '<g stroke="#fff" stroke-width="0.5" fill="none" opacity="0.9">' + cracks + '</g>' +
+    '<circle cx="'+cx+'" cy="'+cy+'" r="2" fill="#fff"/></svg>';
+  document.body.appendChild(ov);
+
+  // fragment shards flying off
+  const frag = document.createElement('div');
+  frag.className = 'shatter-frags';
+  frag.style.left = rect.left + 'px'; frag.style.top = rect.top + 'px';
+  frag.style.width = rect.width + 'px'; frag.style.height = rect.height + 'px';
+  for (let i = 0; i < 16; i++) {
+    const f = document.createElement('div');
+    f.className = 'frag';
+    f.style.left = (Math.random()*85) + '%';
+    f.style.top = (Math.random()*85) + '%';
+    f.style.setProperty('--fx', ((Math.random()-0.5)*400).toFixed(0)+'px');
+    f.style.setProperty('--fy', (200 + Math.random()*300).toFixed(0)+'px');
+    f.style.setProperty('--fr', ((Math.random()-0.5)*720).toFixed(0)+'deg');
+    f.style.setProperty('--fd', (Math.random()*0.15).toFixed(2)+'s');
+    frag.appendChild(f);
+  }
+  document.body.appendChild(frag);
+
+  setTimeout(() => { ov.remove(); frag.remove(); }, 1600);
 }
 
 // Spawn the particle/shockwave explosion on the blundered square.
+// Tiered good-move celebration. delta = how much the move gained (pawns).
+function goodEffect(toSquare, delta, wasCapture) {
+  const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
+  const brilliant = delta >= 2.0;
+  if (brilliant) {
+    sndBrilliant();
+    // gold edge glow
+    const glow = document.createElement('div'); glow.className = 'brilliant-edge';
+    document.body.appendChild(glow);
+    // big text
+    const t = document.createElement('div'); t.className = 'brilliant-text';
+    t.textContent = 'BRILLIANT'; document.body.appendChild(t);
+    const sub = document.createElement('div'); sub.className = 'brilliant-sub';
+    sub.textContent = wasCapture ? 'What a strike' : 'Pure precision';
+    document.body.appendChild(sub);
+    if (sq) sparkle(sq, 16, 'gold');
+    setTimeout(() => { glow.remove(); t.remove(); sub.remove(); }, 1600);
+  } else {
+    sndGood();
+    const t = document.createElement('div'); t.className = 'good-text';
+    t.textContent = wasCapture ? 'NICE TAKE' : 'GOOD MOVE';
+    document.body.appendChild(t);
+    if (sq) sparkle(sq, 7, 'green');
+    setTimeout(() => { t.remove(); }, 1000);
+  }
+}
+
+// Spawn rising sparkle particles off a square.
+function sparkle(sq, count, color) {
+  const wrap = document.createElement('div');
+  wrap.className = 'sparkle-wrap';
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement('div');
+    s.className = 'sparkle ' + color;
+    s.style.left = (Math.random() * 100) + '%';
+    s.style.setProperty('--sx', ((Math.random() * 2 - 1) * 40).toFixed(0) + 'px');
+    s.style.setProperty('--sup', (40 + Math.random() * 60).toFixed(0) + 'px');
+    s.style.setProperty('--sdel', (Math.random() * 0.3).toFixed(2) + 's');
+    s.style.setProperty('--ssz', (3 + Math.random() * 4).toFixed(1) + 'px');
+    wrap.appendChild(s);
+  }
+  sq.appendChild(wrap);
+  setTimeout(() => wrap.remove(), 1500);
+}
+
+// Randomly selects one of five blunder effects on the blundered square.
+function blunderEffect(toSquare) {
+  const fx = ['shatter', 'melt', 'blood', 'tilt', 'implode'];
+  const pick = fx[Math.floor(Math.random() * fx.length)];
+  console.log('[BLUNDER FX]', pick);
+  switch (pick) {
+    case 'shatter': return explodePiece(toSquare);
+    case 'melt':    return fxMelt(toSquare);
+    case 'blood':   return fxBlood(toSquare);
+    case 'tilt':    return fxTilt(toSquare);
+    case 'implode': return fxImplode(toSquare);
+  }
+}
+
+function fxSquareEl(sq) { return document.querySelector('#board [data-sq="' + sq + '"]'); }
+
+// MELT — the piece drips/dissolves into particles and fades.
+function fxMelt(toSquare) {
+  const sq = fxSquareEl(toSquare); if (!sq) return;
+  const piece = sq.querySelector('img.piece');
+  if (piece) piece.classList.add('melting-piece');
+  const drips = document.createElement('div');
+  drips.className = 'melt-drips';
+  for (let i = 0; i < 7; i++) {
+    const d = document.createElement('div');
+    d.className = 'melt-drip';
+    d.style.left = (10 + Math.random() * 80) + '%';
+    d.style.setProperty('--mdelay', (Math.random() * 0.25).toFixed(2) + 's');
+    d.style.setProperty('--mh', (40 + Math.random() * 50).toFixed(0) + '%');
+    drips.appendChild(d);
+  }
+  sq.appendChild(drips);
+  setTimeout(() => { drips.remove(); if (piece) piece.classList.remove('melting-piece'); }, 1300);
+}
+
+// BLOOD — red seeps from the square and spreads to neighbors.
+function fxBlood(toSquare) {
+  const sq = fxSquareEl(toSquare); if (!sq) return;
+  const pool = document.createElement('div');
+  pool.className = 'blood-pool';
+  sq.appendChild(pool);
+  // spread to up to 4 neighbors
+  const file = toSquare.charCodeAt(0), rank = parseInt(toSquare[1]);
+  const neighbors = [[1,0],[-1,0],[0,1],[0,-1]];
+  neighbors.forEach(([df, dr], i) => {
+    const nf = String.fromCharCode(file + df), nr = rank + dr;
+    if (nf < 'a' || nf > 'h' || nr < 1 || nr > 8) return;
+    const nsq = fxSquareEl(nf + nr);
+    if (!nsq) return;
+    const sp = document.createElement('div');
+    sp.className = 'blood-spread';
+    sp.style.setProperty('--bdelay', (0.15 + i * 0.08).toFixed(2) + 's');
+    nsq.appendChild(sp);
+    setTimeout(() => sp.remove(), 2000);
+  });
+  setTimeout(() => pool.remove(), 2000);
+}
+
+// TILT — whole board tips in 3D and pieces slide off.
+function fxTilt(toSquare) {
+  const board = document.getElementById('board');
+  if (!board) return;
+  board.classList.add('board-tilt');
+  board.querySelectorAll('img.piece').forEach((pc, i) => {
+    pc.style.setProperty('--slidex', ((Math.random() * 2 - 1) * 60).toFixed(0) + 'px');
+    pc.style.setProperty('--sdelay', (Math.random() * 0.3).toFixed(2) + 's');
+    pc.classList.add('piece-sliding');
+  });
+  setTimeout(() => {
+    board.classList.remove('board-tilt');
+    board.querySelectorAll('img.piece').forEach(pc => {
+      pc.classList.remove('piece-sliding');
+      pc.style.removeProperty('--slidex'); pc.style.removeProperty('--sdelay');
+    });
+  }, 1500);
+}
+
+// IMPLODE — the square caves in, pulling neighbors toward it (black hole).
+function fxImplode(toSquare) {
+  const sq = fxSquareEl(toSquare); if (!sq) return;
+  const hole = document.createElement('div');
+  hole.className = 'implode-hole';
+  sq.appendChild(hole);
+  const piece = sq.querySelector('img.piece');
+  if (piece) piece.classList.add('imploding-piece');
+  const file = toSquare.charCodeAt(0), rank = parseInt(toSquare[1]);
+  for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) {
+    if (df === 0 && dr === 0) continue;
+    const nf = String.fromCharCode(file + df), nr = rank + dr;
+    if (nf < 'a' || nf > 'h' || nr < 1 || nr > 8) continue;
+    const nsq = fxSquareEl(nf + nr);
+    const npc = nsq && nsq.querySelector('img.piece');
+    if (npc) {
+      npc.style.setProperty('--pullx', (-df * 40).toFixed(0) + 'px');
+      npc.style.setProperty('--pully', (dr * 40).toFixed(0) + 'px');
+      npc.classList.add('pulled-piece');
+    }
+  }
+  setTimeout(() => {
+    hole.remove();
+    if (piece) piece.classList.remove('imploding-piece');
+    document.querySelectorAll('#board img.pulled-piece').forEach(pc => {
+      pc.classList.remove('pulled-piece');
+      pc.style.removeProperty('--pullx'); pc.style.removeProperty('--pully');
+    });
+  }, 1300);
+}
+
 function explodePiece(toSquare) {
   const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
   if (!sq) return;
@@ -779,19 +973,16 @@ function explodePiece(toSquare) {
 }
 
 async function executeMyMove(from, to) {
-  if (S.judging || S.gameOver) return;   // can't move during a verdict
+  if (S.judging || S.gameOver) return;
 
-  // ── 1. Eval BEFORE the move. Prefer the cached pre-eval computed during
-  //       the opponent's turn; fall back to a fresh eval if not ready.
+  // Capture the TRUE position before the move (fresh baseline, no stale cache).
   const fenBefore = S.chess.fen();
-  let evalBeforeWhitePOV = (S.preMoveEval !== null) ? S.preMoveEval : await sfEval(fenBefore);
   S.preMoveEval = null;
 
-  // ── 2. Make the move in chess.js — INSTANT, no awaiting the engine.
+  // Make the move — INSTANT.
   const moveObj = S.chess.move({ from, to, promotion: 'q' });
   if (!moveObj) return;
 
-  // Track timing
   if (S.moveStartTime > 0) {
     S.moveTimings.push((Date.now() - S.moveStartTime) / 1000);
     S.moveStartTime = 0;
@@ -800,7 +991,7 @@ async function executeMyMove(from, to) {
   stopLocalTimer();
   S.timerVal = 10;
   updateTimerUI();
-
+  // hand the clock to the opponent — pause our display until it's our turn again
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
   S.selected = null; S.legalMoves = [];
@@ -810,45 +1001,146 @@ async function executeMyMove(from, to) {
     updateCaptures();
   }
 
-  // ── 3. Enter the JUDGING beat. Board is locked. The moved piece shakes,
-  //       intensity calibrated by a fast shallow eval, while the deep eval
-  //       determines the real verdict.
+  // JUDGING: eval true before AND after positions, fresh, in parallel.
   S.judging = true;
+  boardGlow('judging');
   const fenAfter = S.chess.fen();
-  startSuspense(to);
 
-  // Fast shallow eval (~150ms) → calibrate shake to how close this looks to a blunder.
-  sfEvalShallow(fenAfter).then(shallowWhitePOV => {
-    if (!S.judging) return; // verdict already landed
-    const shallowDrop = S.myColor === 'white'
-      ? evalBeforeWhitePOV - shallowWhitePOV
-      : shallowWhitePOV - evalBeforeWhitePOV;
-    const danger = Math.max(0, Math.min(1, shallowDrop / 2.0));
-    setShakeIntensity(danger);
-  }).catch(()=>{});
-
-  // Deep eval (~700ms) = the real verdict. Beat is at least MIN_BEAT_MS.
-  const MIN_BEAT_MS = 650;
-  const [evalAfterWhitePOV] = await Promise.all([
+  const [evalBeforeWhitePOV, evalAfterWhitePOV] = await Promise.all([
+    sfEval(fenBefore),
     sfEval(fenAfter),
-    new Promise(res => setTimeout(res, MIN_BEAT_MS)),
   ]);
 
   S.judging = false;
 
-  // ── 4. Verdict.
-  await runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV });
+  await runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, evalAfterWhitePOV });
 }
 
 // Builds blunderDetail, decides safe vs blunder, drives reveal + networking.
-async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhitePOV }) {
+// Teachable replay on blunder: undo the move, show the best move, then fade out.
+// Draw an arrow over the board from one square to another. Knights get an L-bend.
+function drawBestArrow(fromSq, toSq, isKnight) {
+  const board = document.getElementById('board');
+  if (!board) return null;
+  const rect = board.getBoundingClientRect();
+  const cell = rect.width / 8;
+  const flipped = S.myColor === 'black';
+  // square name -> pixel center relative to board
+  const center = (sq) => {
+    let file = sq.charCodeAt(0) - 97;        // a..h -> 0..7
+    let rank = parseInt(sq[1]) - 1;          // 1..8 -> 0..7
+    let col = flipped ? 7 - file : file;
+    let row = flipped ? rank : 7 - rank;
+    return { x: col * cell + cell/2, y: row * cell + cell/2 };
+  };
+  const a = center(fromSq), b = center(toSq);
+
+  let pathD;
+  if (isKnight) {
+    // L-shape: go the LONG axis first (2 squares), then bend to the target.
+    const dx = b.x - a.x, dy = b.y - a.y;
+    let bend;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // horizontal long leg, then vertical
+      bend = { x: b.x, y: a.y };
+    } else {
+      // vertical long leg, then horizontal
+      bend = { x: a.x, y: b.y };
+    }
+    pathD = 'M ' + a.x + ' ' + a.y + ' L ' + bend.x + ' ' + bend.y + ' L ' + b.x + ' ' + b.y;
+  } else {
+    pathD = 'M ' + a.x + ' ' + a.y + ' L ' + b.x + ' ' + b.y;
+  }
+
+  let ov = document.getElementById('best-arrow');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'best-arrow';
+  ov.style.cssText = 'position:absolute;left:0;top:0;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
+  ov.innerHTML =
+    '<svg width="' + rect.width + '" height="' + rect.height + '" style="overflow:visible">' +
+    '<defs><marker id="ah" markerWidth="6" markerHeight="6" refX="3.5" refY="3" orient="auto">' +
+    '<path d="M0,0 L6,3 L0,6 Z" fill="#34D399"/></marker></defs>' +
+    '<path d="' + pathD + '" fill="none" stroke="#34D399" stroke-width="' + (cell*0.10).toFixed(1) +
+    '" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#ah)" opacity="0.92"/>' +
+    '</svg>';
+  // position the overlay over the board (board-wrap is positioned relative)
+  board.parentElement.appendChild(ov);
+  return ov;
+}
+
+async function blunderReplay(fenBefore, badFrom, badTo) {
+  const board = document.getElementById('board');
+  // 1. undo my move so the board shows the pre-blunder position
+  try { S.chess.undo(); } catch(e) {}
+  S.lastFrom = null; S.lastTo = null;
+  renderBoard();
+
+  // 2. label overlay
+  let lbl = document.getElementById('replay-label');
+  if (!lbl) {
+    lbl = document.createElement('div');
+    lbl.id = 'replay-label';
+    document.body.appendChild(lbl);
+  }
+  lbl.textContent = 'Analyzing\u2026';
+  lbl.className = 'replay-label show';
+
+  // 3. ask the engine for the best move from that position
+  const best = await sfBestMove(fenBefore, 1000);
+
+  if (best) {
+    const fEl = document.querySelector('#board [data-sq="' + best.from + '"]');
+    const tEl = document.querySelector('#board [data-sq="' + best.to + '"]');
+    if (fEl) fEl.classList.add('best-from');
+    if (tEl) tEl.classList.add('best-to');
+    // is it a knight move? from-square piece type, or L-shaped geometry.
+    let isKnight = false;
+    try {
+      const pc = S.chess.get(best.from);
+      isKnight = pc && pc.type === 'n';
+    } catch(e) {}
+    if (!isKnight) {
+      const df = Math.abs(best.from.charCodeAt(0) - best.to.charCodeAt(0));
+      const dr = Math.abs(parseInt(best.from[1]) - parseInt(best.to[1]));
+      isKnight = (df === 1 && dr === 2) || (df === 2 && dr === 1);
+    }
+    const arrow = drawBestArrow(best.from, best.to, isKnight);
+    lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
+    await new Promise(r => setTimeout(r, 6000));
+    if (fEl) fEl.classList.remove('best-from');
+    if (tEl) tEl.classList.remove('best-to');
+    if (arrow) arrow.remove();
+  } else {
+    lbl.textContent = 'No clear best move';
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  lbl.classList.remove('show');
+
+  // Hard cleanup — clear EVERYTHING before the result modal fades in.
+  const arrowEl = document.getElementById('best-arrow');
+  if (arrowEl) arrowEl.remove();
+  document.querySelectorAll('#board .best-from, #board .best-to').forEach(el => {
+    el.classList.remove('best-from'); el.classList.remove('best-to');
+  });
+  if (lbl) lbl.remove();
+}
+
+async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, evalAfterWhitePOV }) {
   const VALS = {p:1, n:3, b:3, r:5, q:9, k:0};
   const pieceNames = {p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
-  const BLUNDER_THRESHOLD = 2.0;
+  const BLUNDER_THRESHOLD = 1.5;  // matches server BLUNDER_THRESH (-1.5)
 
-  const evalDrop = S.myColor === 'white'
+  // Raw drop in MY favor (positive = I lost ground).
+  const rawDrop = S.myColor === 'white'
     ? evalBeforeWhitePOV - evalAfterWhitePOV
     : evalAfterWhitePOV - evalBeforeWhitePOV;
+  // evalBefore is measured with ME to move, so the engine reports it from the
+  // optimistic "I play the best move" view; evalAfter is with the OPPONENT to
+  // move. That side-to-move flip adds a systematic tempo swing (~0.5-0.7) to
+  // every move, even good ones. Subtract it so only real losses count.
+  const TEMPO_OFFSET = 0.7;
+  const evalDrop = rawDrop - TEMPO_OFFSET;
 
   console.log('[SF]',
     'before(W):', (evalBeforeWhitePOV||0).toFixed(2),
@@ -908,12 +1200,21 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 
     S.gameOver = true;
     stopLocalTimer();
-    stopSuspense();
-    explodePiece(to);
+    // Tell the server immediately (so the result is recorded), but hold the
+    // visual result until the teachable replay finishes.
+    S.replaying = true; S._pendingGameOver = null;
     wsSend({ type: 'blunder', san: moveObj.san, worstLoss, detail: blunderDetail });
 
-    // Dramatic red reveal
+    // Drama beat first
+    boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
+    blunderEffect(to);
     sndBlunder();
+
+    // Then: undo + show the best move, before the result screen appears.
+    await blunderReplay(fenBefore, from, to);
+    S.replaying = false;
+    // If the server's game_over arrived during the replay, show it now.
+    if (S._pendingGameOver) { const m = S._pendingGameOver; S._pendingGameOver = null; onGameOver(m); return; }
     const reactions = [
       { text: 'BLUNDER', sub: 'You hung that piece' },
       { text: 'CATASTROPHIC', sub: 'Game over, you' },
@@ -935,29 +1236,26 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
     document.body.appendChild(sub);
     setTimeout(() => { flash.remove(); text.remove(); sub.remove(); }, 2500);
 
-    // Failsafe local game-over if server is slow
-    setTimeout(() => {
-      if (!document.getElementById('result-modal').classList.contains('show')) {
-        console.log('[BLUNDER] Server slow, forcing local game over');
-        onGameOver({
-          type: 'game_over',
-          reason: 'You blundered — ' + moveObj.san,
-          blunderDetail,
-          winner: S.myColor === 'white' ? 'black' : 'white',
-          winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
-          ratings: {
-            white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
-            black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
-          },
-          noAdsUnlocked: { white: false, black: false }
-        });
-      }
-    }, 1500);
+    // Replay has finished (awaited above). Now show the result — no race.
+    if (!S._gameOverFired && !document.getElementById('result-modal').classList.contains('show')) {
+      onGameOver({
+        type: 'game_over',
+        reason: 'You blundered — ' + moveObj.san,
+        blunderDetail,
+        winner: S.myColor === 'white' ? 'black' : 'white',
+        winnerUsername: S.opponent ? S.opponent.username : 'Opponent',
+        ratings: {
+          white: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 },
+          black: { old: S.user.rating, new: Math.max(100, S.user.rating - 12), delta: -12 }
+        },
+        noAdsUnlocked: { white: false, black: false }
+      });
+    }
     return;
   }
 
   // ════════════ SAFE ════════════
-  stopSuspense();
+  boardGlow(playerPovDelta >= 1.5 ? 'supergood' : 'good', 1100);
   // Quick green pulse on the square you survived
   const safeSq = document.querySelector('#board [data-sq="' + to + '"]');
   if (safeSq) {
@@ -966,13 +1264,7 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
   }
   // Genuinely good move (eval gained ≥0.8) gets a reward flash
   if (quality === 'good') {
-    sndGood();
-    const flash = document.createElement('div'); flash.className = 'good-flash';
-    document.body.appendChild(flash);
-    const gt = document.createElement('div'); gt.className = 'good-text';
-    gt.textContent = moveObj.captured ? 'NICE TAKE' : 'GOOD MOVE';
-    document.body.appendChild(gt);
-    setTimeout(() => { flash.remove(); gt.remove(); }, 1000);
+    goodEffect(to, playerPovDelta, !!moveObj.captured);
   }
 
   // You survived. Send the move to the server now (held until verdict so the
@@ -998,34 +1290,89 @@ async function runVerdict({ moveObj, from, to, evalBeforeWhitePOV, evalAfterWhit
 }
 
 // Opponent's move comes from server
-function onOpponentMove(msg) {
+async function onOpponentMove(msg) {
   if (!S.chess || msg.color === S.myColor) return;
   if (msg.isBlunder) return; // server will send game_over
+
+  // Capture the position BEFORE their move so we can judge it like ours.
+  const fenBeforeOpp = S.chess.fen();
 
   const moveObj = S.chess.move({ from: msg.from, to: msg.to, promotion: 'q' });
   if (!moveObj) return;
 
   S.lastFrom = msg.from; S.lastTo = msg.to;
   if (moveObj.captured) sndCapture(); else sndMove();
-
   if (moveObj.captured) {
     S.capturedOpp.push((S.myColor==='white'?'w':'b') + moveObj.captured.toUpperCase());
     updateCaptures();
   }
-
-  S.evalScore = msg.evalAfter || S.evalScore;
   S.moveHistory.push({ san: moveObj.san, color: msg.color, quality: '' });
-
   updateMoveLog();
-  updateEvalUI();
   renderBoard();
+
+  // JUDGING: lock the board, eval their before+after, same as my moves.
+  S.judging = true;
+  boardGlow('judging');
+  const fenAfterOpp = S.chess.fen();
+
+  let evalBeforeW = 0, evalAfterW = 0;
+  try {
+    [evalBeforeW, evalAfterW] = await Promise.all([
+      sfEval(fenBeforeOpp),
+      sfEval(fenAfterOpp),
+    ]);
+  } catch(e) {}
+
+  S.judging = false;
+  S.evalScore = evalAfterW;
+  updateEvalUI();
+
+  // Opponent's drop (from THEIR POV). Opp is the color that isn't mine.
+  const oppColor = S.myColor === 'white' ? 'black' : 'white';
+  const rawDropOpp = oppColor === 'white'
+    ? evalBeforeW - evalAfterW
+    : evalAfterW - evalBeforeW;
+  const TEMPO_OFFSET = 0.7;
+  const oppDrop = rawDropOpp - TEMPO_OFFSET;
+
+  console.log('[SF opp]', 'before(W):', evalBeforeW.toFixed(2),
+    'after(W):', evalAfterW.toFixed(2), 'oppDrop:', oppDrop.toFixed(2));
+
+  // Glow from MY POV: my standing after their move.
+  const myStanding = S.myColor === 'white' ? evalAfterW : -evalAfterW;
+
+  // Did the OPPONENT blunder? Same threshold as me. If so, I win instantly.
+  const BLUNDER_THRESHOLD = 1.5;
+  if (oppDrop >= BLUNDER_THRESHOLD && !S.gameOver) {
+    boardGlow(oppDrop >= 3.0 ? 'supergood' : 'good', 1600);
+    sndWin();
+    wsSend({ type: 'opp_blunder', san: moveObj.san });
+    // Failsafe local win if server is slow / it's a bot game.
+    setTimeout(() => {
+      if (!S._gameOverFired && !document.getElementById('result-modal').classList.contains('show')) {
+        onGameOver({
+          type: 'game_over',
+          reason: 'Opponent blundered — ' + moveObj.san,
+          winner: S.myColor,
+          winnerUsername: S.user ? S.user.username : 'You',
+          ratings: {
+            white: { old: S.user.rating, new: S.user.rating + 12, delta: 12 },
+            black: { old: S.user.rating, new: S.user.rating + 12, delta: 12 }
+          },
+          noAdsUnlocked: { white: false, black: false }
+        });
+      }
+    }, 1200);
+    return;
+  }
+
+  // Normal: glow from my POV, hand the clock back to me.
+  boardGlow(myStanding > 1.5 ? 'good' : myStanding < -1.5 ? 'bad' : 'idle', 1100);
   updateTurnUI();
   startLocalTimer();
 
-  // Pre-eval the position NOW (during my thinking time) so the suspense beat
-  // after I move only needs the AFTER eval. Cached in S.preMoveEval.
-  S.preMoveEval = null;
-  sfEvalLatest(S.chess.fen()).then(v => { S.preMoveEval = v; }).catch(()=>{});
+  // Cache my pre-move baseline for my upcoming move.
+  S.preMoveEval = evalAfterW;
 }
 
 // Server timer sync
@@ -1221,6 +1568,10 @@ function startAutoRestartCountdown() {
 // GAME OVER
 // ══════════════════════════════════════════
 function onGameOver(msg) {
+  if (S._gameOverFired) { console.log('[GAME OVER] ignored duplicate'); return; }
+  // If the blunder replay is still playing, hold the result until it finishes.
+  if (S.replaying) { console.log('[GAME OVER] deferred until replay ends'); S._pendingGameOver = msg; return; }
+  S._gameOverFired = true;
   console.log('[GAME OVER]', JSON.stringify(msg));
   S.gameOver = true;
   stopLocalTimer();
@@ -1753,9 +2104,53 @@ body {
   grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
   width:min(64vw,580px); height:min(64vw,580px);
   border:2px solid var(--border2);
-  box-shadow: 0 0 60px rgba(0,0,0,.6);
-  transition:box-shadow .3s;
+  transition: box-shadow .35s ease;
+  /* ambient: slow white breathing pulse around the edges */
+  animation: boardIdlePulse 3.4s ease-in-out infinite;
 }
+@keyframes boardIdlePulse {
+  0%,100% { box-shadow: 0 0 18px rgba(245,241,234,.10), 0 0 60px rgba(0,0,0,.6); }
+  50%     { box-shadow: 0 0 30px rgba(245,241,234,.30), 0 0 60px rgba(0,0,0,.6); }
+}
+
+/* JUDGING — yellow, quicker pulse while the engine decides */
+.board.bg-judging {
+  animation: boardJudge 0.9s ease-in-out infinite;
+}
+@keyframes boardJudge {
+  0%,100% { box-shadow: 0 0 0 2px rgba(245,197,24,.5), 0 0 28px rgba(245,197,24,.4); }
+  50%     { box-shadow: 0 0 0 3px rgba(245,197,24,.9), 0 0 55px rgba(245,197,24,.8); }
+}
+
+/* VERDICT — solid glows, scaled by magnitude. animation:none overrides the pulse */
+.board.bg-good {
+  animation: none;
+  box-shadow: 0 0 0 3px var(--mint), 0 0 45px rgba(52,211,153,.55);
+}
+.board.bg-supergood {
+  animation: boardSuperGood 0.5s ease-out;
+  box-shadow: 0 0 0 5px var(--mint), 0 0 80px rgba(52,211,153,.95), 0 0 140px rgba(52,211,153,.5);
+}
+@keyframes boardSuperGood {
+  0%   { box-shadow: 0 0 0 3px var(--mint), 0 0 40px rgba(52,211,153,.6); }
+  40%  { box-shadow: 0 0 0 8px var(--mint), 0 0 110px rgba(52,211,153,1), 0 0 180px rgba(52,211,153,.7); }
+  100% { box-shadow: 0 0 0 5px var(--mint), 0 0 80px rgba(52,211,153,.95), 0 0 140px rgba(52,211,153,.5); }
+}
+.board.bg-bad {
+  animation: none;
+  box-shadow: 0 0 0 3px var(--crimson), 0 0 45px rgba(225,29,46,.6);
+}
+.board.bg-superbad {
+  animation: boardSuperBad 0.5s ease-out;
+  box-shadow: 0 0 0 6px var(--crimson), 0 0 90px rgba(225,29,46,1), 0 0 160px rgba(225,29,46,.6);
+}
+@keyframes boardSuperBad {
+  0%   { box-shadow: 0 0 0 3px var(--crimson), 0 0 40px rgba(225,29,46,.7); }
+  35%  { box-shadow: 0 0 0 10px var(--crimson), 0 0 130px rgba(225,29,46,1), 0 0 220px rgba(225,29,46,.8); }
+  100% { box-shadow: 0 0 0 6px var(--crimson), 0 0 90px rgba(225,29,46,1), 0 0 160px rgba(225,29,46,.6); }
+}
+
+/* legacy classes kept harmless */
 .board.fg { box-shadow:0 0 0 3px var(--ember), 0 0 60px rgba(255,122,26,.4); }
 .board.fr { box-shadow:0 0 0 3px var(--crimson), 0 0 60px rgba(225,29,46,.5); }
 
@@ -2197,54 +2592,64 @@ body {
 
 
 
+
+
 /* ════════════════════════════════════════
-   SUSPENSE BEAT — the moved piece is the bomb
+   JUDGING COUNTDOWN + VERDICT FLASH
 ════════════════════════════════════════ */
-#suspense-overlay {
-  position: fixed; inset: 0; z-index: 860;
-  pointer-events: none; opacity: 0;
-  background: radial-gradient(ellipse 95% 95% at 50% 50%, rgba(14,17,22,0.45) 0%, rgba(14,17,22,0.82) 100%);
-  transition: opacity 0.16s ease;
+#s-game.judging-cut .game-body > *:not(.g-center),
+#s-game.judging-cut .board-wrap,
+#s-game.judging-cut .game-nav {
+  opacity: 0; transition: opacity 0.12s ease;
 }
-#suspense-overlay.show { opacity: 1; }
+#s-game.judging-cut .g-center { background: transparent; }
 
-/* The moved piece trembles + swells. Intensity driven by --shake (0..1). */
-.piece.judging-piece {
-  --shake: 0.12;
-  position: relative;
-  z-index: 50;
-  transform-origin: center;
-  animation: pieceJudge calc(0.16s - (var(--shake) * 0.09s)) linear infinite;
-  filter: drop-shadow(0 0 calc(4px + var(--shake) * 22px) rgba(255, calc(122 - var(--shake)*122), 26, calc(0.4 + var(--shake)*0.6)));
+#countdown-overlay {
+  position: fixed; inset: 0; z-index: 880;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; opacity: 0; transition: opacity 0.12s ease;
 }
-@keyframes pieceJudge {
-  0%   { transform: translate(calc(var(--shake) * -3px), calc(var(--shake) * 2px)) scale(calc(1 + var(--shake) * 0.45)) rotate(calc(var(--shake) * -4deg)); }
-  25%  { transform: translate(calc(var(--shake) * 3px),  calc(var(--shake) * -2px)) scale(calc(1 + var(--shake) * 0.5)) rotate(calc(var(--shake) * 4deg)); }
-  50%  { transform: translate(calc(var(--shake) * -2px), calc(var(--shake) * -3px)) scale(calc(1 + var(--shake) * 0.42)) rotate(calc(var(--shake) * 3deg)); }
-  75%  { transform: translate(calc(var(--shake) * 2px),  calc(var(--shake) * 3px)) scale(calc(1 + var(--shake) * 0.5)) rotate(calc(var(--shake) * -3deg)); }
-  100% { transform: translate(calc(var(--shake) * -3px), calc(var(--shake) * 2px)) scale(calc(1 + var(--shake) * 0.45)) rotate(calc(var(--shake) * -4deg)); }
+#countdown-overlay.show { opacity: 1; }
+#countdown-num {
+  font-family: 'Antonio', sans-serif; font-weight: 700;
+  font-size: clamp(120px, 22vw, 240px); line-height: 1;
+  color: #F5F1EA; text-shadow: 0 0 60px rgba(255,122,26,0.5);
+}
+#countdown-num.pop { animation: cdPop 0.4s cubic-bezier(.2,.8,.3,1); }
+@keyframes cdPop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  40%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-/* SAFE — green pulse on the survived square */
+.verdict-flash {
+  position: fixed; inset: 0; z-index: 905; pointer-events: none;
+  animation: verdictFlashAnim 0.5s ease-out forwards;
+}
+.verdict-flash.green { background: radial-gradient(ellipse at center, rgba(52,211,153,0.45) 0%, transparent 70%); }
+.verdict-flash.red   { background: radial-gradient(ellipse at center, rgba(225,29,46,0.55) 0%, transparent 70%); }
+@keyframes verdictFlashAnim {
+  0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; }
+}
+
 .sq.verdict-safe::before {
   content: ''; position: absolute; inset: 0; z-index: 40;
   background: radial-gradient(circle at center, rgba(52,211,153,0.55) 0%, transparent 70%);
   animation: safePulse 0.6s ease-out forwards; pointer-events: none;
 }
 @keyframes safePulse {
-  0%   { opacity: 0; transform: scale(0.6); }
-  35%  { opacity: 1; transform: scale(1.05); }
+  0% { opacity: 0; transform: scale(0.6); }
+  35% { opacity: 1; transform: scale(1.05); }
   100% { opacity: 0; transform: scale(1.2); }
 }
 
-/* BLUNDER — explosion */
 .piece.exploding-piece {
   animation: pieceBoom 0.4s cubic-bezier(.4,0,.2,1) forwards !important;
   z-index: 60 !important;
 }
 @keyframes pieceBoom {
-  0%   { transform: scale(1.45); opacity: 1; }
-  30%  { transform: scale(2.1); opacity: 1; filter: brightness(2) drop-shadow(0 0 30px #E11D2E); }
+  0% { transform: scale(1.0); opacity: 1; }
+  30% { transform: scale(1.8); opacity: 1; filter: brightness(2) drop-shadow(0 0 30px #E11D2E); }
   100% { transform: scale(0.2); opacity: 0; }
 }
 .explosion {
@@ -2253,11 +2658,10 @@ body {
 }
 .shockwave {
   position: absolute; width: 20%; height: 20%; border-radius: 50%;
-  border: 3px solid #E11D2E;
-  animation: shockwave 0.7s ease-out forwards;
+  border: 3px solid #E11D2E; animation: shockwave 0.7s ease-out forwards;
 }
 @keyframes shockwave {
-  0%   { transform: scale(0.4); opacity: 0.95; border-width: 5px; }
+  0% { transform: scale(0.4); opacity: 0.95; border-width: 5px; }
   100% { transform: scale(6); opacity: 0; border-width: 1px; }
 }
 .shard {
@@ -2266,8 +2670,212 @@ body {
   animation: shard 0.8s cubic-bezier(.2,.6,.3,1) forwards;
 }
 @keyframes shard {
-  0%   { transform: translate(-50%, -50%) rotate(0deg); opacity: 1; }
+  0% { transform: translate(-50%, -50%) rotate(0deg); opacity: 1; }
   100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)); opacity: 0; }
+}
+
+/* ── BLUNDER SHATTER ── */
+.shatter-shake { animation: shatterShake 0.6s cubic-bezier(.36,.07,.19,.97); }
+@keyframes shatterShake {
+  0%,100% { transform: translate(0,0); }
+  10% { transform: translate(-12px,6px) rotate(-1deg); }
+  20% { transform: translate(14px,-8px) rotate(1.5deg); }
+  30% { transform: translate(-16px,4px) rotate(-1deg); }
+  40% { transform: translate(12px,8px) rotate(1deg); }
+  50% { transform: translate(-10px,-6px); }
+  60% { transform: translate(8px,4px); }
+  70% { transform: translate(-6px,2px); }
+  80% { transform: translate(4px,-2px); }
+}
+.shatter-overlay {
+  position: fixed; z-index: 9500; pointer-events: none;
+}
+.shatter-overlay svg { width: 100%; height: 100%; overflow: visible; }
+.shatter-overlay g path {
+  stroke-dasharray: 200; stroke-dashoffset: 200;
+  animation: crackDraw 0.25s ease-out forwards;
+  filter: drop-shadow(0 0 3px rgba(255,255,255,.8));
+}
+@keyframes crackDraw { to { stroke-dashoffset: 0; } }
+.shatter-frags { position: fixed; z-index: 9400; pointer-events: none; }
+.frag {
+  position: absolute; width: 12%; height: 12%;
+  background: linear-gradient(135deg, #3a2e26, #2c3340);
+  border: 1px solid rgba(255,255,255,.15);
+  opacity: 0;
+  animation: fragFly 1.3s cubic-bezier(.4,0,.7,1) forwards;
+  animation-delay: var(--fd, 0s);
+}
+@keyframes fragFly {
+  0% { opacity: 1; transform: translate(0,0) rotate(0deg); }
+  100% { opacity: 0; transform: translate(var(--fx), var(--fy)) rotate(var(--fr)); }
+}
+
+/* ── BLUNDER REPLAY ── */
+.replay-label {
+  position: fixed; top: 12%; left: 50%; transform: translateX(-50%) translateY(-10px);
+  font-family: 'JetBrains Mono', monospace; font-size: 18px; letter-spacing: 2px;
+  color: #34D399; background: rgba(14,17,22,.92);
+  padding: 12px 24px; border: 1px solid #34D399; border-radius: 4px;
+  z-index: 9600; opacity: 0; pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+  box-shadow: 0 0 30px rgba(52,211,153,.4);
+}
+.replay-label.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.sq.best-from::after {
+  content: ''; position: absolute; inset: 0; z-index: 30;
+  background: radial-gradient(circle, rgba(52,211,153,.5) 0%, transparent 70%);
+  animation: bestPulse 0.9s ease-in-out infinite;
+}
+.sq.best-to {
+  outline: 4px solid #34D399; outline-offset: -4px;
+  box-shadow: inset 0 0 30px rgba(52,211,153,.6);
+  animation: bestPulse 0.9s ease-in-out infinite;
+}
+@keyframes bestPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+/* ════════════════════════════════════════
+   BLUNDER EFFECTS (random selection)
+════════════════════════════════════════ */
+
+/* MELT */
+.melting-piece { animation: meltPiece 1.1s ease-in forwards !important; transform-origin: center bottom; }
+@keyframes meltPiece {
+  0% { transform: scaleY(1); opacity: 1; filter: none; }
+  40% { transform: scaleY(1.1) scaleX(0.9); }
+  100% { transform: scaleY(0.1) scaleX(1.3); opacity: 0; filter: blur(3px); }
+}
+.melt-drips { position: absolute; inset: 0; pointer-events: none; z-index: 56; overflow: hidden; }
+.melt-drip {
+  position: absolute; top: 30%; width: 8%; border-radius: 0 0 50% 50%;
+  background: linear-gradient(180deg, #E11D2E, #7a0f18); height: 0;
+  animation: dripFall 1.1s ease-in forwards; animation-delay: var(--mdelay, 0s);
+}
+@keyframes dripFall {
+  0% { height: 0; opacity: 0.9; }
+  100% { height: var(--mh, 60%); opacity: 0; }
+}
+
+/* BLOOD */
+.blood-pool {
+  position: absolute; inset: 0; z-index: 54; pointer-events: none; border-radius: 4px;
+  background: radial-gradient(circle at 50% 50%, rgba(140,15,20,0.95) 0%, rgba(120,12,18,0.7) 55%, transparent 80%);
+  transform: scale(0); animation: bloodPool 0.7s ease-out forwards;
+}
+@keyframes bloodPool { 0% { transform: scale(0); } 100% { transform: scale(1.1); } }
+.blood-spread {
+  position: absolute; inset: 0; z-index: 53; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(140,15,20,0.7) 0%, transparent 70%);
+  transform: scale(0); opacity: 0;
+  animation: bloodSpread 1.2s ease-out forwards; animation-delay: var(--bdelay, 0s);
+}
+@keyframes bloodSpread {
+  0% { transform: scale(0); opacity: 0; }
+  40% { opacity: 1; }
+  100% { transform: scale(1); opacity: 0.85; }
+}
+
+/* TILT */
+.board.board-tilt {
+  animation: boardTilt 1.4s cubic-bezier(.5,0,.5,1) forwards;
+  transform-style: preserve-3d; perspective: 800px;
+}
+@keyframes boardTilt {
+  0% { transform: rotateX(0) rotateZ(0); }
+  30% { transform: rotateX(45deg) rotateZ(-8deg); }
+  100% { transform: rotateX(78deg) rotateZ(-14deg) translateY(40px); opacity: 0.6; }
+}
+.piece-sliding {
+  animation: pieceSlide 1.4s cubic-bezier(.4,0,.8,1) forwards !important;
+  animation-delay: var(--sdelay, 0s);
+}
+@keyframes pieceSlide {
+  0% { transform: translateY(0) translateX(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(120px) translateX(var(--slidex, 0)) rotate(40deg); opacity: 0; }
+}
+
+/* IMPLODE */
+.implode-hole {
+  position: absolute; inset: 0; z-index: 57; pointer-events: none; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #000 0%, #1a0008 40%, transparent 75%);
+  transform: scale(0.2); animation: implodeHole 1.2s cubic-bezier(.6,0,.4,1) forwards;
+  box-shadow: 0 0 30px rgba(0,0,0,.9);
+}
+@keyframes implodeHole {
+  0% { transform: scale(0.2); opacity: 0; }
+  40% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+.imploding-piece { animation: implodePiece 1.0s cubic-bezier(.6,0,.4,1) forwards !important; z-index: 58 !important; }
+@keyframes implodePiece {
+  0% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0) rotate(360deg); opacity: 0; }
+}
+.pulled-piece {
+  animation: pullPiece 1.0s cubic-bezier(.5,0,.4,1) forwards !important;
+}
+@keyframes pullPiece {
+  0% { transform: translate(0,0) scale(1); }
+  100% { transform: translate(var(--pullx,0), var(--pully,0)) scale(0.6); opacity: 0.3; }
+}
+
+/* ════════════════════════════════════════
+   GOOD-MOVE EFFECTS (tiered)
+════════════════════════════════════════ */
+.sparkle-wrap { position: absolute; inset: 0; pointer-events: none; z-index: 58; overflow: visible; }
+.sparkle {
+  position: absolute; bottom: 30%; width: var(--ssz, 5px); height: var(--ssz, 5px);
+  border-radius: 50%; opacity: 0;
+  animation: sparkleRise 1.2s ease-out forwards; animation-delay: var(--sdel, 0s);
+}
+.sparkle.green { background: #34D399; box-shadow: 0 0 8px #34D399; }
+.sparkle.gold  { background: #F5C518; box-shadow: 0 0 10px #F5C518; }
+@keyframes sparkleRise {
+  0% { transform: translate(0,0) scale(0); opacity: 0; }
+  25% { opacity: 1; transform: translate(0,0) scale(1.2); }
+  100% { transform: translate(var(--sx,0), calc(-1 * var(--sup,50px))) scale(0); opacity: 0; }
+}
+
+/* GOOD text (reuse existing .good-text styling if present, this is a fallback) */
+.good-text {
+  position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
+  font-family: 'Antonio', sans-serif; font-size: 80px; font-weight: 700;
+  color: #34D399; text-shadow: 0 0 40px rgba(52,211,153,0.8);
+  letter-spacing: 6px; z-index: 9001; pointer-events: none;
+  animation: goodFloat 1s ease-out forwards;
+}
+
+/* BRILLIANT */
+.brilliant-edge {
+  position: fixed; inset: 0; z-index: 9000; pointer-events: none;
+  box-shadow: inset 0 0 120px 20px rgba(245,197,24,0.5);
+  animation: brillEdge 1.6s ease-out forwards;
+}
+@keyframes brillEdge {
+  0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; }
+}
+.brilliant-text {
+  position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);
+  font-family: 'Antonio', sans-serif; font-size: 130px; font-weight: 700;
+  color: #F5C518; text-shadow: 0 0 50px rgba(245,197,24,0.9), 0 0 100px rgba(245,197,24,0.5);
+  letter-spacing: 8px; z-index: 9001; pointer-events: none;
+  animation: brillPop 1.6s cubic-bezier(.2,.8,.3,1) forwards;
+}
+@keyframes brillPop {
+  0% { transform: translate(-50%,-50%) scale(0.4); opacity: 0; }
+  20% { transform: translate(-50%,-50%) scale(1.15); opacity: 1; }
+  70% { transform: translate(-50%,-50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(1.1); opacity: 0; }
+}
+.brilliant-sub {
+  position: fixed; top: 52%; left: 50%; transform: translate(-50%, -50%);
+  font-family: 'JetBrains Mono', monospace; font-size: 18px;
+  color: rgba(245,197,24,0.9); text-transform: uppercase; letter-spacing: 4px;
+  z-index: 9001; pointer-events: none;
+  animation: brillSub 1.6s ease-out forwards;
+}
+@keyframes brillSub {
+  0% { opacity: 0; } 30% { opacity: 0; } 50% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; }
 }
 
 ===== client/public/index.html =====
@@ -2550,6 +3158,7 @@ function handleConnection(ws) {
       case 'move':       return doMove(ws, msg);
       case 'checkmate':  return doCheckmate(ws, msg);
       case 'blunder':    return doBlunder(ws, msg);
+      case 'opp_blunder': return doOppBlunder(ws, msg);
       case 'draw':       return doDraw(ws);
       case 'resign':     return doResign(ws);
       case 'ping':       return send(ws, { type: 'pong' });
@@ -2697,22 +3306,19 @@ function doMove(ws, msg) {
   const { from, to, san, evalBefore, evalAfter } = msg;
   const delta = (evalAfter || 0) - (evalBefore || 0);
   const adjusted = color === 'white' ? delta : -delta;
-  const isBlunder = adjusted < BLUNDER_THRESH;
 
-  console.log('[MOVE]', ws.player.username, san, 'delta:', adjusted, 'blunder:', isBlunder);
+  console.log('[MOVE]', ws.player.username, san, 'delta:', adjusted);
   session.moves.push({ color, from, to, san, evalBefore, evalAfter, delta: adjusted });
   stopTurnTimer(session);
 
+  // NOTE: blunder detection is now CLIENT-side (tempo-corrected). The server no
+  // longer second-guesses it here — the client sends an explicit 'blunder' /
+  // 'opp_blunder' message when it decides. This keeps both sides in agreement.
   if (session.isBot) {
     session.bot.onMove(from, to);
-    send(ws, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder });
+    send(ws, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder: false });
   } else {
-    bcast(session, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder });
-  }
-
-  if (isBlunder) {
-    endGame(session, color === 'white' ? 'black' : 'white', ws.player.username + ' blundered — ' + san);
-    return;
+    bcast(session, { type: 'move', color, from, to, san, evalBefore, evalAfter, delta: adjusted, isBlunder: false });
   }
 
   const next = color === 'white' ? 'black' : 'white';
@@ -2760,6 +3366,16 @@ function doBlunder(ws, msg) {
     ws.player.username + ' blundered — ' + msg.san);
 }
 
+function doOppBlunder(ws, msg) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  const color = colorOf(session, ws);
+  if (!color) return;
+  // The REPORTING player wins — their opponent blundered.
+  console.log('[OPP_BLUNDER]', ws.player.username, 'wins, opp blundered on', msg.san);
+  endGame(session, color, 'Opponent blundered — ' + msg.san);
+}
+
 function doCheckmate(ws, msg) {
   const session = findSession(ws);
   if (!session || session.over) return;
@@ -2793,21 +3409,31 @@ function endGame(session, winnerColor, reason) {
     const human = session.white;
     const humanWon = winnerColor === 'white';
     const delta = humanWon ? 15 : -12;
-    const newRating = Math.max(100, human.rating + delta);
-    db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
-      [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, newRating, human.id]);
-    const result = {
-      type: 'game_over', reason,
-      winner: winnerColor,
-      winnerUsername: humanWon ? human.username : session.bot.name,
-      blunderDetail: session.blunderDetail || null,
-      ratings: {
-        white: { old: human.rating, new: newRating, delta },
-        black: { old: session.bot.rating, new: session.bot.rating, delta: 0 }
-      },
-      noAdsUnlocked: { white: newRating >= 1600 && !human.no_ads, black: false }
-    };
-    send(session.whiteWs, result);
+    // Read the CURRENT rating from the DB — not the stale snapshot captured at
+    // connect time — so consecutive games don't overwrite each other.
+    db.get('SELECT rating, peak_rating, no_ads FROM users WHERE id=?', [human.id], (err, row) => {
+      const curRating = (row && typeof row.rating === 'number') ? row.rating : human.rating;
+      const curPeak   = (row && typeof row.peak_rating === 'number') ? row.peak_rating : curRating;
+      const curNoAds  = row ? row.no_ads : human.no_ads;
+      const newRating = Math.max(100, curRating + delta);
+      db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
+        [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, newRating, human.id]);
+      // Keep the in-memory player fresh for the NEXT game on this connection.
+      human.rating = newRating;
+      human.peak_rating = Math.max(curPeak, newRating);
+      const result = {
+        type: 'game_over', reason,
+        winner: winnerColor,
+        winnerUsername: humanWon ? human.username : session.bot.name,
+        blunderDetail: session.blunderDetail || null,
+        ratings: {
+          white: { old: curRating, new: newRating, delta },
+          black: { old: session.bot.rating, new: session.bot.rating, delta: 0 }
+        },
+        noAdsUnlocked: { white: newRating >= 1600 && !curNoAds, black: false }
+      };
+      send(session.whiteWs, result);
+    });
     activeGames.delete(session.id);
     return;
   }
@@ -2874,26 +3500,45 @@ module.exports = { handleConnection };
 ===== server/game/bot.js =====
 const { Chess } = require('chess.js');
 
-const BOT_NAMES = [
-  'BlunderBot', 'CastleGhost', 'PawnStorm_AI', 'NightKnight',
-  'DeepBlunder', 'RookieBot', 'ForkMaster_AI', 'SilentBishop',
-  'ZugzwangBot', 'EndgameAI', 'TacticalGhost', 'CheckMateBot'
+// Opponent archetypes — each game rolls one for real variety in name,
+// strength, and play style.
+const ARCHETYPES = [
+  { key: 'beginner', label: 'Beginner', ratingMin: 700,  ratingMax: 1000, blunder: 0.18, capWeight: 1, names:
+    ['RookieRoger', 'OopsAllPawns', 'BlunderBot', 'NewbNigel', 'PawnPusher', 'CoffeeHouse'] },
+  { key: 'aggressive', label: 'Aggressive', ratingMin: 1000, ratingMax: 1500, blunder: 0.10, capWeight: 3, names:
+    ['PawnStorm_AI', 'GambitGremlin', 'TacticalGhost', 'ForkMaster_AI', 'SacAttack', 'WildBishop'] },
+  { key: 'solid', label: 'Solid', ratingMin: 1200, ratingMax: 1700, blunder: 0.05, capWeight: 1, names:
+    ['FortressBot', 'StoneWall_AI', 'CastleGhost', 'SilentBishop', 'ProphylaxisPro', 'SolidSam'] },
+  { key: 'sharp', label: 'Sharp', ratingMin: 1600, ratingMax: 2100, blunder: 0.025, capWeight: 2, names:
+    ['DeepNightmare', 'EndgameAI', 'ZugzwangBot', 'CheckMateBot', 'NightKnight', 'CalcMonster'] },
 ];
 
 const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const BOT_NAMES = ARCHETYPES.flatMap(a => a.names); // kept for compatibility
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 class BotPlayer {
   constructor(session, botColor, humanRating) {
     this.session = session;
     this.color = botColor;
     this.chess = new Chess();
-    this.name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+
+    // Roll an archetype. Bias slightly toward archetypes near the human's level
+    // so games are usually competitive, but allow the full spread for variety.
     const hr = humanRating || 1200;
-    this.rating = Math.max(600, Math.min(2200, hr + (Math.floor(Math.random() * 100) - 50)));
-    // Blunder chance: 25% at 800 rating, 5% at 1800, 2% at 2200
-    this.blunderChance = Math.max(0.02, 0.35 - (this.rating - 600) / 5000);
+    const arch = pick(ARCHETYPES);
+    this.archetype = arch.key;
+    this.name = pick(arch.names);
+    // Rating: within the archetype's band, nudged toward the human a little.
+    const bandMid = (arch.ratingMin + arch.ratingMax) / 2;
+    const raw = bandMid * 0.6 + hr * 0.4 + (Math.floor(Math.random() * 200) - 100);
+    this.rating = Math.max(arch.ratingMin, Math.min(arch.ratingMax, Math.round(raw)));
+    this.blunderChance = arch.blunder;
+    this.capWeight = arch.capWeight; // how much it favors captures/aggression
     this.active = true;
-    console.log('[BOT] created', this.name, 'rating', this.rating, 'blunder%', (this.blunderChance*100).toFixed(0));
+    console.log('[BOT] created', this.name, '(' + arch.label + ')',
+      'rating', this.rating, 'blunder%', (this.blunderChance*100).toFixed(0));
   }
 
   onMove(from, to) {
@@ -2906,7 +3551,7 @@ class BotPlayer {
 
   scheduleMove() {
     if (!this.active || this.session.over) return;
-    const delay = 600 + Math.random() * 1500;
+    const delay = 800 + Math.random() * Math.random() * 4500; // human-ish: usually quick, sometimes long
     setTimeout(() => {
       try {
         this.makeMove();
@@ -2942,8 +3587,11 @@ class BotPlayer {
 
     // Decide if we'll blunder this turn
     const willBlunder = Math.random() < this.blunderChance;
-    if (willBlunder && legalMoves.length > 1) {
-      chosen = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    if (willBlunder && legalMoves.length > 2) {
+      // Weak (not suicidal) move: pick from the weaker half of scored moves.
+      const scored = this.scoreMoves(legalMoves);
+      const half = scored.slice(Math.floor(scored.length / 2));
+      chosen = half[Math.floor(Math.random() * half.length)].move;
       console.log('[BOT]', this.name, 'making weak move (rating', this.rating, ')');
     } else {
       chosen = this.chooseMove(legalMoves);
@@ -2969,17 +3617,13 @@ class BotPlayer {
     });
   }
 
-  chooseMove(moves) {
-    // Score each move with simple heuristics (no expensive lookahead that can crash)
+  scoreMoves(moves) {
     const scored = moves.map(m => {
       let score = 0;
-      // Captures are good, weighted by what we capture
-      if (m.captured) score += PIECE_VALUE[m.captured] * 10;
-      // Checks bonus
-      if (m.san.includes('+')) score += 2;
-      // Checkmate is highest
+      const cw = this.capWeight || 1; // archetype aggression multiplier
+      if (m.captured) score += PIECE_VALUE[m.captured] * 10 * cw;
+      if (m.san.includes('+')) score += 2 * cw;
       if (m.san.includes('#')) score += 10000;
-      // Penalize moves that hang our piece (basic 1-ply check, in try/catch)
       try {
         const test = new Chess(this.chess.fen());
         test.move({ from: m.from, to: m.to, promotion: 'q' });
@@ -2988,21 +3632,21 @@ class BotPlayer {
         for (const om of oppMoves) {
           if (om.to === m.to && om.captured) {
             const theirValue = PIECE_VALUE[om.piece] || 0;
-            // Will we lose more than we'd gain back?
             const net = myValue - theirValue;
             if (net > 0) score -= net * 8;
             break;
           }
         }
-      } catch (e) {
-        // If sim fails just skip the penalty
-      }
+      } catch (e) {}
       score += Math.random() * 2;
       return { move: m, score };
     });
-
     scored.sort((a, b) => b.score - a.score);
-    // Lower rating = pick from wider top set
+    return scored;
+  }
+
+  chooseMove(moves) {
+    const scored = this.scoreMoves(moves);
     const topN = Math.max(1, Math.round((2200 - this.rating) / 400));
     const top = scored.slice(0, Math.min(topN, scored.length));
     return top[Math.floor(Math.random() * top.length)].move;
@@ -3273,22 +3917,4 @@ server.listen(PORT, () => {
     "node": ">=18.0.0"
   }
 }
-
-===== nixpacks.toml =====
-[phases.setup]
-apt_pkgs = ["python3", "make", "g++"]
-
-===== railway.toml =====
-[build]
-builder = "NIXPACKS"
-
-[deploy]
-startCommand = "npm start"
-healthcheckPath = "/health"
-healthcheckTimeout = 30
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
-
-[[services]]
-name = "sudden-death-chess"
 
