@@ -120,8 +120,8 @@ function startHumanGame(wsW, white, wsB, black) {
     timer: null, timerVal: 10, over: false
   };
   activeGames.set(id, session);
-  db.run("INSERT INTO games (id,white_id,black_id,white_rating,black_rating,moves) VALUES (?,?,?,?,?,'[]')",
-    [id, white.id, black.id, white.rating, black.rating]);
+  db.run("INSERT INTO games (id,white_id,black_id,white_name,black_name,white_rating,black_rating,moves) VALUES (?,?,?,?,?,?,?,'[]')",
+    [id, white.id, black.id, white.username, black.username, white.rating, black.rating]);
   const info = { type: 'game_start', gameId: id,
     white: { username: white.username, rating: white.rating },
     black: { username: black.username, rating: black.rating } };
@@ -158,6 +158,8 @@ function startBotGame(ws) {
   };
 
   activeGames.set(id, session);
+  db.run("INSERT INTO games (id,white_id,black_id,white_name,black_name,white_rating,black_rating,moves) VALUES (?,?,?,?,?,?,?,'[]')",
+    [id, human.id, -1, human.username, bot.name, human.rating, bot.rating]);
   const info = { type: 'game_start', gameId: id,
     white: { username: human.username, rating: human.rating },
     black: { username: bot.name, rating: bot.rating },
@@ -291,6 +293,9 @@ function endGame(session, winnerColor, reason) {
       // Keep the in-memory player fresh for the NEXT game on this connection.
       human.rating = newRating;
       human.peak_rating = Math.max(curPeak, newRating);
+      const dur = Math.round((Date.now() - session.startedAt) / 1000);
+      db.run("UPDATE games SET winner_id=?, end_reason=?, moves=?, white_delta=?, black_delta=0, duration_secs=?, ended_at=datetime('now') WHERE id=?",
+        [humanWon ? human.id : -1, reason, JSON.stringify(session.moves), delta, dur, session.id]);
       const result = {
         type: 'game_over', reason,
         winner: winnerColor,

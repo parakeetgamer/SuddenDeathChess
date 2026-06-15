@@ -33,6 +33,39 @@ router.get('/:username', (req, res) => {
   });
 });
 
+router.get('/:username/games', (req, res) => {
+  db.get('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [req.params.username], (err, u) => {
+    if (err || !u) return res.status(404).json({ error: 'User not found.' });
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+    db.all(
+      'SELECT * FROM games WHERE (white_id=? OR black_id=?) AND ended_at IS NOT NULL ORDER BY ended_at ASC LIMIT ?',
+      [u.id, u.id, limit],
+      (e2, rows) => {
+        if (e2) return res.status(500).json({ error: 'Server error.' });
+        const games = (rows || []).map(g => {
+          const iAmWhite = g.white_id === u.id;
+          const myDelta = iAmWhite ? g.white_delta : g.black_delta;
+          const myRatingBefore = iAmWhite ? g.white_rating : g.black_rating;
+          const oppName = iAmWhite ? g.black_name : g.white_name;
+          const oppRating = iAmWhite ? g.black_rating : g.white_rating;
+          let result = 'loss';
+          if (g.winner_id == null) result = 'draw';
+          else if (g.winner_id === u.id) result = 'win';
+          const ratingAfter = (typeof myRatingBefore === 'number' && typeof myDelta === 'number')
+            ? myRatingBefore + myDelta : myRatingBefore;
+          return {
+            id: g.id, date: g.ended_at, color: iAmWhite ? 'white' : 'black',
+            opponent: oppName || 'Opponent', opponentRating: oppRating,
+            result, ratingBefore: myRatingBefore, ratingAfter, delta: myDelta,
+            endReason: g.end_reason, durationSecs: g.duration_secs
+          };
+        });
+        res.json(games);
+      }
+    );
+  });
+});
+
 function safeUser(u) {
   return { id: u.id, username: u.username, rating: u.rating, peak_rating: u.peak_rating, wins: u.wins, losses: u.losses, games: u.games, no_ads: u.no_ads === 1 };
 }

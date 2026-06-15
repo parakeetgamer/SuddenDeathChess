@@ -27,6 +27,8 @@ db.serialize(() => {
     id            TEXT    PRIMARY KEY,
     white_id      INTEGER,
     black_id      INTEGER,
+    white_name    TEXT,
+    black_name    TEXT,
     winner_id     INTEGER,
     end_reason    TEXT,
     moves         TEXT    DEFAULT '[]',
@@ -38,7 +40,11 @@ db.serialize(() => {
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     ended_at      TEXT
   )`);
+  db.run('ALTER TABLE games ADD COLUMN white_name TEXT', () => {});
+  db.run('ALTER TABLE games ADD COLUMN black_name TEXT', () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_rating ON users(rating DESC)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_games_white ON games(white_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_games_black ON games(black_id)`);
 });
 
 module.exports = db;

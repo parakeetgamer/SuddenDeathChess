@@ -426,7 +426,7 @@ async function loadLeaderboard() {
 // ══════════════════════════════════════════
 // PROFILE
 // ══════════════════════════════════════════
-function showProfile() {
+async function showProfile() {
   if (!S.user) return;
   const u = S.user;
   document.getElementById('prof-avatar').textContent = u.username[0].toUpperCase();
@@ -447,8 +447,49 @@ function showProfile() {
     adsEl.className = 'ads-status';
   }
 
-  drawChart();
   show('s-profile');
+  await loadProfileGames(u.username);
+}
+
+async function loadProfileGames(username) {
+  const listEl = document.getElementById('games-list');
+  try {
+    const res = await fetch('/api/users/' + encodeURIComponent(username) + '/games?limit=30');
+    const games = res.ok ? await res.json() : [];
+    if (games.length) {
+      const curve = [games[0].ratingBefore];
+      games.forEach(g => { if (typeof g.ratingAfter === 'number') curve.push(g.ratingAfter); });
+      S.ratingHistory = curve;
+    }
+    drawChart();
+    if (listEl) {
+      if (!games.length) {
+        listEl.innerHTML = '<div style="color:#52525B;font-size:12px;padding:8px 0">No games yet \u2014 go win some.</div>';
+      } else {
+        listEl.innerHTML = games.slice().reverse().map(g => {
+          const win = g.result === 'win', draw = g.result === 'draw';
+          const col = draw ? '#A1A1AA' : (win ? '#34D399' : '#E11D2E');
+          const tag = draw ? 'DRAW' : (win ? 'WIN' : 'LOSS');
+          const sign = (g.delta >= 0 ? '+' : '');
+          const when = g.date ? String(g.date).split(' ')[0] : '';
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-left:3px solid ' + col + ';background:rgba(255,255,255,0.02);border-radius:4px;margin-bottom:6px;">' +
+            '<div style="display:flex;flex-direction:column;gap:2px">' +
+              '<span style="font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:2px;color:' + col + '">' + tag + '</span>' +
+              '<span style="font-size:13px;color:#F5F1EA">vs ' + (g.opponent || 'Opponent') + ' <span style="color:#52525B">(' + (g.opponentRating || '?') + ')</span></span>' +
+              '<span style="font-size:11px;color:#52525B">' + (g.endReason || '') + '</span>' +
+            '</div>' +
+            '<div style="text-align:right">' +
+              '<div style="font-family:JetBrains Mono,monospace;font-size:14px;color:' + col + '">' + sign + (g.delta == null ? 0 : g.delta) + '</div>' +
+              '<div style="font-size:11px;color:#52525B">' + (g.ratingAfter || '') + '</div>' +
+              '<div style="font-size:10px;color:#3D4A5C">' + when + '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+    }
+  } catch (e) {
+    if (listEl) listEl.innerHTML = '<div style="color:#52525B;font-size:12px">Could not load games.</div>';
+  }
 }
 
 function drawChart() {
