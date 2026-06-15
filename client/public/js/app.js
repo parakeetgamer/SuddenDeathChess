@@ -1803,14 +1803,29 @@ function recPickMime() {
 }
 
 function recLoadPieces() {
-  const map = {};
+  // Use the SAME high-contrast pieces as the live board. Load them cross-origin
+  // so the canvas stays clean for recording; if a CORS load fails, fall back to
+  // the inline SVG set (which can never taint).
   const keys = Object.keys(PIECE_SVG);
-  return Promise.all(keys.map(k => new Promise(res => {
+  const map = {};
+  function fallback(k, res) {
     const img = new Image();
-    img.onload = () => res(); img.onerror = () => res();
+    img.onload = () => { map[k] = img; res(); };
+    img.onerror = () => res();
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(PIECE_SVG[k]);
-    map[k] = img;
-  }))).then(() => map);
+  }
+  function loadOne(k) {
+    return new Promise(res => {
+      const url = (typeof PIECE_IMGS_URLS !== 'undefined') ? PIECE_IMGS_URLS[k] : null;
+      if (!url) return fallback(k, res);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { map[k] = img; res(); };
+      img.onerror = () => fallback(k, res); // no CORS -> load fails -> safe inline fallback
+      img.src = url;
+    });
+  }
+  return Promise.all(keys.map(loadOne)).then(() => map);
 }
 
 function recDrawFrame() {
