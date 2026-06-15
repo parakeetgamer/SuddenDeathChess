@@ -588,6 +588,7 @@ function onGameStart(msg) {
   S._flipped = undefined;
 
   // Pre-game countdown overlay
+  ensureRecordButton();
   startPreGameCountdown(msg.color === 'white');
 }
 
@@ -1787,6 +1788,183 @@ function showPremium() {
 function closePremium() {
   const ov = document.getElementById('premium-overlay');
   if (ov) ov.remove();
+}
+
+// ══════════════════════════════════════════
+// CONTENT RECORDER  (9:16 reel: face cam + board + branding)
+// ══════════════════════════════════════════
+const REC = { active:false, recorder:null, chunks:[], raf:null, canvas:null, ctx:null, video:null, stream:null, userStream:null, pieceImgs:null, mime:'', ext:'webm' };
+
+function recPickMime() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const cands = ['video/mp4;codecs=h264','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  for (const m of cands) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch(e){} }
+  return '';
+}
+
+function recLoadPieces() {
+  const map = {};
+  const keys = Object.keys(PIECE_SVG);
+  return Promise.all(keys.map(k => new Promise(res => {
+    const img = new Image();
+    img.onload = () => res(); img.onerror = () => res();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(PIECE_SVG[k]);
+    map[k] = img;
+  }))).then(() => map);
+}
+
+function recDrawFrame() {
+  const ctx = REC.ctx, W = 540, H = 960;
+  ctx.fillStyle = '#0E1116'; ctx.fillRect(0,0,W,H);
+  const camH = 330;
+  if (REC.video && REC.video.videoWidth) {
+    const v = REC.video, vw = v.videoWidth, vh = v.videoHeight;
+    const scale = Math.max(W/vw, camH/vh), dw = vw*scale, dh = vh*scale;
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,camH); ctx.clip();
+    ctx.drawImage(v, (W-dw)/2, (camH-dh)/2, dw, dh); ctx.restore();
+  } else { ctx.fillStyle = '#191D24'; ctx.fillRect(0,0,W,camH); }
+
+  ctx.fillStyle = 'rgba(14,17,22,0.85)'; ctx.fillRect(0, camH-44, W, 44);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.font = '700 26px Antonio, sans-serif';
+  ctx.fillStyle = '#FF7A1A'; ctx.fillText('SUDDEN', 18, camH-22);
+  const sw = ctx.measureText('SUDDEN').width;
+  ctx.fillStyle = '#E11D2E'; ctx.fillText('DEATH', 18+sw+8, camH-22);
+  ctx.fillStyle = '#52525B'; ctx.font = '700 12px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  ctx.fillText('SUDDENDEATHCHESS', W-16, camH-22); ctx.textAlign = 'left';
+
+  const bSize = 500, bX = 20, bY = 380, cell = bSize/8;
+  const flipped = S.myColor === 'black';
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const col = flipped ? 7-f : f, row = flipped ? r : 7-r;
+    ctx.fillStyle = ((f+r)%2===0) ? '#3A2E26' : '#E8D7B5';
+    ctx.fillRect(bX+col*cell, bY+row*cell, cell, cell);
+  }
+  if (REC.pieceImgs && S.chess) {
+    [S.lastFrom, S.lastTo].filter(Boolean).forEach(sq => {
+      const f = sq.charCodeAt(0)-97, ri = parseInt(sq[1])-1;
+      const col = flipped ? 7-f : f, row = flipped ? ri : 7-ri;
+      ctx.fillStyle = 'rgba(255,122,26,0.32)';
+      ctx.fillRect(bX+col*cell, bY+row*cell, cell, cell);
+    });
+    for (let rr = 1; rr <= 8; rr++) for (let f = 0; f < 8; f++) {
+      const sq = 'abcdefgh'[f] + rr;
+      let p; try { p = S.chess.get(sq); } catch(e) { p = null; }
+      if (!p) continue;
+      const img = REC.pieceImgs[(p.color==='w'?'w':'b') + p.type.toUpperCase()];
+      if (!img || !img.complete || !img.naturalWidth) continue;
+      const col = flipped ? 7-f : f, row = flipped ? (rr-1) : (8-rr);
+      try { ctx.drawImage(img, bX+col*cell+3, bY+row*cell+3, cell-6, cell-6); } catch(e) {}
+    }
+  }
+  ctx.strokeStyle = '#3D4A5C'; ctx.lineWidth = 2; ctx.strokeRect(bX, bY, bSize, bSize);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#A1A1AA'; ctx.font = '700 15px JetBrains Mono, monospace';
+  ctx.fillText('One blunder = instant death', W/2, bY+bSize+46);
+  ctx.fillStyle = '#52525B'; ctx.font = '12px JetBrains Mono, monospace';
+  ctx.fillText('suddendeathchess.up.railway.app', W/2, H-28);
+  ctx.textAlign = 'left';
+
+  if (REC.active) REC.raf = requestAnimationFrame(recDrawFrame);
+}
+
+async function startRecording(btn) {
+  if (REC.active) return;
+  REC.mime = recPickMime();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !REC.mime) {
+    toast('Recording is not supported on this browser.'); return;
+  }
+  REC.ext = REC.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+  try {
+    REC.userStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:640, height:480 }, audio:true });
+  } catch(e) { toast('Camera/mic permission denied.'); return; }
+
+  REC.video = document.createElement('video');
+  REC.video.muted = true; REC.video.playsInline = true; REC.video.autoplay = true;
+  REC.video.srcObject = REC.userStream;
+  try { await REC.video.play(); } catch(e) {}
+
+  REC.pieceImgs = await recLoadPieces();
+  REC.canvas = document.createElement('canvas');
+  REC.canvas.width = 540; REC.canvas.height = 960;
+  REC.ctx = REC.canvas.getContext('2d');
+  REC.active = true;
+  recDrawFrame();
+
+  try { REC.stream = REC.canvas.captureStream(30); }
+  catch(e) { toast('Recording blocked by the browser.'); stopRecordingCleanup(); return; }
+  REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
+
+  REC.chunks = [];
+  try { REC.recorder = new MediaRecorder(REC.stream, { mimeType: REC.mime, videoBitsPerSecond: 4000000 }); }
+  catch(e) { try { REC.recorder = new MediaRecorder(REC.stream); } catch(e2) { toast('Recording failed to start.'); stopRecordingCleanup(); return; } }
+  REC.recorder.ondataavailable = (e) => { if (e.data && e.data.size) REC.chunks.push(e.data); };
+  REC.recorder.onstop = () => finishRecording();
+  REC.recorder.start();
+
+  btn.textContent = '⏹ STOP & SAVE';
+  btn.style.background = '#E11D2E'; btn.style.color = '#fff'; btn.style.borderColor = '#E11D2E';
+  toast('Recording… go make some content!');
+}
+
+function stopRecording(btn) {
+  if (!REC.active) return;
+  REC.active = false;
+  if (REC.raf) cancelAnimationFrame(REC.raf);
+  try { if (REC.recorder && REC.recorder.state !== 'inactive') REC.recorder.stop(); } catch(e) {}
+  btn.textContent = '🔴 Create Content';
+  btn.style.background = 'rgba(225,29,46,0.15)'; btn.style.color = '#E11D2E'; btn.style.borderColor = 'rgba(225,29,46,0.5)';
+}
+
+function stopRecordingCleanup() {
+  REC.active = false;
+  if (REC.raf) cancelAnimationFrame(REC.raf);
+  if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
+}
+
+function finishRecording() {
+  const blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
+  if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
+  const url = URL.createObjectURL(blob);
+  const fname = 'sudden-death-' + Date.now() + '.' + REC.ext;
+  const file = window.File ? new File([blob], fname, { type: blob.type }) : null;
+  showRecordResult(url, file, fname);
+}
+
+function showRecordResult(url, file, fname) {
+  let ov = document.getElementById('rec-result'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'rec-result';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2100;overflow-y:auto;background:rgba(14,17,22,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px';
+  const canShareFile = !!(navigator.canShare && file && navigator.canShare({ files:[file] }));
+  ov.innerHTML =
+    '<div style="width:100%;max-width:340px;text-align:center">' +
+      '<div style="font-family:Antonio,sans-serif;font-size:28px;font-weight:700;color:#F5F1EA;margin-bottom:4px">Your clip is ready</div>' +
+      '<div style="font-size:13px;color:#A1A1AA;margin-bottom:16px">Share it or download to post anywhere.</div>' +
+      '<video src="' + url + '" controls playsinline style="width:100%;border-radius:10px;background:#000;margin-bottom:18px"></video>' +
+      (canShareFile ? '<button id="rec-share" style="width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:16px;font-family:Antonio,sans-serif;font-size:20px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px;margin-bottom:10px">📲 Share to Social</button>' : '') +
+      '<a id="rec-dl" href="' + url + '" download="' + fname + '" style="display:block;width:100%;background:transparent;color:#F5F1EA;border:1px solid #3D4A5C;padding:15px;font-family:Antonio,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px;text-decoration:none;box-sizing:border-box;margin-bottom:10px">⬇ Download</a>' +
+      '<div id="rec-close" style="font-size:13px;color:#A1A1AA;margin-top:8px;cursor:pointer;text-decoration:underline">Close</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const close = () => { ov.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+  document.getElementById('rec-close').onclick = close;
+  if (canShareFile) {
+    document.getElementById('rec-share').onclick = async () => {
+      try { await navigator.share({ files:[file], title:'Sudden Death Chess', text:'My Sudden Death Chess clip' }); } catch(e) {}
+    };
+  }
+}
+
+function ensureRecordButton() {
+  if (document.getElementById('rec-btn')) return;
+  const screen = document.getElementById('s-game'); if (!screen) return;
+  const btn = document.createElement('button');
+  btn.id = 'rec-btn';
+  btn.textContent = '🔴 Create Content';
+  btn.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:1500;background:rgba(225,29,46,0.15);border:1px solid rgba(225,29,46,0.5);color:#E11D2E;padding:9px 14px;border-radius:30px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:1px;cursor:pointer;backdrop-filter:blur(6px)';
+  btn.onclick = () => { if (REC.active) stopRecording(btn); else startRecording(btn); };
+  screen.appendChild(btn);
 }
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
