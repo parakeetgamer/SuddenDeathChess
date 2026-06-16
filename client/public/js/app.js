@@ -1064,7 +1064,7 @@ async function executeMyMove(from, to) {
   }
 
   // JUDGING: eval true before AND after positions, fresh, in parallel.
-  S.judging = true;
+  S.judging = true; webFxStart();
   boardGlow('judging');
   const fenAfter = S.chess.fen();
 
@@ -1217,6 +1217,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
 
   // move-log color
   const playerPovDelta = -evalDrop;
+  S.lastMoveDelta = playerPovDelta;
   const quality = isClientBlunder ? 'blunder'
                 : playerPovDelta > 0.8 ? 'good'
                 : playerPovDelta < -0.3 ? 'inaccuracy'
@@ -1270,7 +1271,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
     // Drama beat first
     boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
     blunderEffect(to);
-    webFxVerdict('death', to);
+    webFxVerdict('death', to, playerPovDelta);
     sndBlunder();
 
     // Then: undo + show the best move, before the result screen appears.
@@ -1319,7 +1320,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
 
   // ════════════ SAFE ════════════
   boardGlow(playerPovDelta >= 1.5 ? 'supergood' : 'good', 1100);
-  webFxVerdict('safe', to);
+  webFxVerdict('safe', to, playerPovDelta);
   // Quick green pulse on the square you survived
   const safeSq = document.querySelector('#board [data-sq="' + to + '"]');
   if (safeSq) {
@@ -1377,7 +1378,7 @@ async function onOpponentMove(msg) {
   renderBoard();
 
   // JUDGING: lock the board, eval their before+after, same as my moves.
-  S.judging = true;
+  S.judging = true; webFxStart();
   boardGlow('judging');
   const fenAfterOpp = S.chess.fen();
 
@@ -1856,8 +1857,11 @@ function recDrawFrame() {
 
   if (phase !== REC._prevPhase) {
     const o = originOf(S.lastTo);
-    if (phase === 'safe') { REC._fx = { type:'safe', start:now, x:o[0], y:o[1] }; recBurst(o[0], o[1], '#34D399', 48); }
-    else if (phase === 'death') { REC._fx = { type:'death', start:now, x:o[0], y:o[1] }; recBurst(o[0], o[1], '#E11D2E', 64); }
+    const tier = fxTier(typeof S.lastMoveDelta === 'number' ? S.lastMoveDelta : 0, phase === 'death');
+    if (phase === 'safe' || phase === 'death') {
+      REC._fx = { type:phase, start:now, x:o[0], y:o[1], rgb:tier.flash, label:tier.label };
+      recBurst(o[0], o[1], tier.part, tier.n);
+    }
   }
   REC._prevPhase = phase;
   const fx = REC._fx;
@@ -1934,7 +1938,7 @@ function recDrawFrame() {
   }
 
   if (fx && fxT < 1) {
-    const col = fx.type === 'safe' ? '52,211,153' : '225,29,46';
+    const col = (fx && fx.rgb) ? fx.rgb : (fx.type === 'safe' ? '52,211,153' : '225,29,46');
     ctx.strokeStyle = 'rgba(' + col + ',' + (1-fxT).toFixed(2) + ')';
     ctx.lineWidth = 10*(1-fxT)+2;
     ctx.beginPath(); ctx.arc(fxX, fxY, cell*0.4 + fxT*bSize*0.5, 0, Math.PI*2); ctx.stroke();
@@ -1964,10 +1968,10 @@ function recDrawFrame() {
     const pop = fx ? Math.min(1, fxT*3) : 1;
     ctx.save(); ctx.translate(W/2, sy); ctx.scale(0.7+0.35*pop, 0.7+0.35*pop);
     ctx.fillStyle = '#E11D2E'; ctx.font = '700 42px Antonio, sans-serif';
-    ctx.fillText('\u2620 GAME OVER', 0, 0); ctx.restore();
+    ctx.fillText((fx && fx.label) || '\u2620 GAME OVER', 0, 0); ctx.restore();
   } else if (phase === 'safe') {
-    ctx.fillStyle = '#34D399'; ctx.font = '700 38px Antonio, sans-serif';
-    ctx.fillText('\u2713 SURVIVED', W/2, sy);
+    ctx.fillStyle = (fx && fx.rgb) ? ('rgb('+fx.rgb+')') : '#34D399'; ctx.font = '700 36px Antonio, sans-serif';
+    ctx.fillText((fx && fx.label) || '\u2713 SURVIVED', W/2, sy);
   } else {
     ctx.fillStyle = '#A1A1AA'; ctx.font = '700 21px Antonio, sans-serif';
     ctx.fillText('MAKE YOUR MOVE', W/2, sy);
@@ -2125,7 +2129,15 @@ function showRecordResult(url, file, fname) {
 }
 
 // Live on-site verdict effects -- identical look to the recorded reel.
-const WFX = { canvas:null, ctx:null, raf:null, parts:[], rings:[], flash:null };
+function fxTier(delta, death) {
+  if (death) return { kind:'death', label:'\u2620 GAME OVER', flash:'225,29,46', part:'#E11D2E', n:70, shake:true };
+  if (delta >= 2.0) return { kind:'brilliant', label:'BRILLIANT', flash:'245,197,24', part:'#F5C518', n:90, shake:false };
+  if (delta >= 0.8) return { kind:'great', label:'GREAT MOVE', flash:'52,211,153', part:'#34D399', n:64, shake:false };
+  if (delta <= -1.0) return { kind:'close', label:'CLOSE CALL', flash:'225,29,46', part:'#34D399', n:74, shake:true };
+  return { kind:'safe', label:'\u2713 SURVIVED', flash:'52,211,153', part:'#34D399', n:38, shake:false };
+}
+
+const WFX = { canvas:null, ctx:null, raf:null, parts:[], rings:[], flash:null, verdict:null };
 function webFxCanvas() {
   if (!WFX.canvas) {
     const c = document.createElement('canvas');
@@ -2134,52 +2146,83 @@ function webFxCanvas() {
     document.body.appendChild(c);
     WFX.canvas = c; WFX.ctx = c.getContext('2d');
   }
-  WFX.canvas.width = window.innerWidth; WFX.canvas.height = window.innerHeight;
+  if (WFX.canvas.width !== window.innerWidth || WFX.canvas.height !== window.innerHeight) {
+    WFX.canvas.width = window.innerWidth; WFX.canvas.height = window.innerHeight;
+  }
   return WFX.canvas;
 }
-function webFxVerdict(type, square) {
+function webFxStart() { webFxCanvas(); if (!WFX.raf) WFX.raf = requestAnimationFrame(webFxFrame); }
+
+function webFxVerdict(type, square, delta) {
   try {
     webFxCanvas();
+    const tier = fxTier(typeof delta === 'number' ? delta : 0, type === 'death');
     const board = document.getElementById('board'); if (!board) return;
     const sqEl = document.querySelector('#board [data-sq="' + square + '"]');
     let cx, cy, cell;
     if (sqEl) { const r = sqEl.getBoundingClientRect(); cx=r.left+r.width/2; cy=r.top+r.height/2; cell=r.width; }
     else { const r = board.getBoundingClientRect(); cx=r.left+r.width/2; cy=r.top+r.height/2; cell=r.width/8; }
-    const rgb = type === 'safe' ? '52,211,153' : '225,29,46';
-    const hex = type === 'safe' ? '#34D399' : '#E11D2E';
     const now = performance.now();
-    WFX.flash = { rgb, start: now };
-    WFX.rings.push({ x:cx, y:cy, cell, rgb, start: now });
-    const cnt = type === 'safe' ? 40 : 56, k = cell/60;
-    for (let i=0;i<cnt;i++){ const a=Math.random()*Math.PI*2, sp=(3+Math.random()*10)*k; WFX.parts.push({x:cx,y:cy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2.5*k,life:1,hex:hex,sz:cell/10}); }
-    if (type === 'death') { const g=document.getElementById('s-game'); if (g){ g.classList.add('shatter-shake'); setTimeout(()=>g.classList.remove('shatter-shake'),500); } }
-    webFxLoop();
+    WFX.flash = { rgb: tier.flash, start: now };
+    WFX.rings.push({ x:cx, y:cy, cell, rgb: tier.flash, start: now });
+    const k = cell/60;
+    for (let i=0;i<tier.n;i++){ const a=Math.random()*Math.PI*2, sp=(3+Math.random()*11)*k; WFX.parts.push({x:cx,y:cy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2.5*k,life:1,hex:tier.part,sz:cell/10}); }
+    WFX.verdict = { kind: tier.kind, label: tier.label, until: now + 1400, death: type === 'death' };
+    if (tier.shake) { const g=document.getElementById('s-game'); if (g){ g.classList.add('shatter-shake'); setTimeout(()=>g.classList.remove('shatter-shake'),500); } }
+    webFxStart();
   } catch (e) {}
 }
-function webFxLoop() {
-  if (WFX.raf) return;
-  const step = () => {
-    const ctx = WFX.ctx, W = WFX.canvas.width, H = WFX.canvas.height, now = performance.now();
-    ctx.clearRect(0,0,W,H);
-    let alive = false;
-    if (WFX.flash) {
-      const t = (now - WFX.flash.start)/700;
-      if (t < 1) { ctx.fillStyle='rgba('+WFX.flash.rgb+','+(0.4*(1-t)).toFixed(3)+')'; ctx.fillRect(0,0,W,H); alive=true; }
-      else WFX.flash = null;
-    }
-    WFX.rings = WFX.rings.filter(r => {
-      const t = (now - r.start)/700; if (t >= 1) return false;
-      ctx.strokeStyle = 'rgba('+r.rgb+','+(1-t).toFixed(3)+')';
-      ctx.lineWidth = (10*(1-t)+2)*(r.cell/60);
-      ctx.beginPath(); ctx.arc(r.x, r.y, r.cell*0.4 + t*r.cell*4.0, 0, Math.PI*2); ctx.stroke();
-      alive = true; return true;
-    });
-    for (let i=WFX.parts.length-1;i>=0;i--){ const p=WFX.parts[i]; p.x+=p.vx;p.y+=p.vy;p.vy+=0.45*(p.sz/6);p.vx*=0.98;p.life-=0.025; if(p.life<=0){WFX.parts.splice(i,1);continue;} ctx.globalAlpha=Math.max(0,p.life); ctx.fillStyle=p.hex; ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz); alive=true; }
-    ctx.globalAlpha = 1;
-    if (alive) WFX.raf = requestAnimationFrame(step);
-    else { WFX.raf = null; ctx.clearRect(0,0,W,H); }
-  };
-  WFX.raf = requestAnimationFrame(step);
+
+function webFxFrame() {
+  const ctx = WFX.ctx; if (!ctx) { WFX.raf = null; return; }
+  webFxCanvas();
+  const W = WFX.canvas.width, H = WFX.canvas.height, now = performance.now();
+  const pulse = 0.5 + 0.5*Math.sin(now/150);
+  ctx.clearRect(0,0,W,H);
+  let active = false;
+  const board = document.getElementById('board');
+  const br = board ? board.getBoundingClientRect() : null;
+  const judging = !!S.judging && !S.gameOver;
+
+  if (judging && br && br.width > 0) {
+    active = true;
+    const cx = br.left+br.width/2, cy = br.top+br.height/2;
+    const g = ctx.createRadialGradient(cx,cy,br.width*0.22,cx,cy,br.width*0.82);
+    g.addColorStop(0,'rgba(225,29,46,0)');
+    g.addColorStop(1,'rgba(225,29,46,'+(0.16+0.22*pulse).toFixed(3)+')');
+    ctx.fillStyle=g; ctx.fillRect(br.left-30,br.top-30,br.width+60,br.height+60);
+    ctx.strokeStyle='rgba(255,122,26,'+(0.4+0.6*pulse).toFixed(3)+')';
+    ctx.lineWidth=6; ctx.strokeRect(br.left-3,br.top-3,br.width+6,br.height+6);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const dots='.'.repeat(1+(Math.floor(now/300)%3));
+    const hb = 1 + 0.07*pulse;
+    ctx.save(); ctx.translate(cx, br.top+br.height+Math.max(26,br.width*0.075)); ctx.scale(hb,hb);
+    ctx.fillStyle='rgba(255,122,26,'+(0.6+0.4*pulse).toFixed(3)+')';
+    ctx.font='700 '+Math.round(Math.max(20,br.width*0.058))+'px Antonio, sans-serif';
+    ctx.fillText('DID IT SURVIVE'+dots, 0, 0); ctx.restore();
+  }
+
+  if (WFX.flash) { const t=(now-WFX.flash.start)/700; if(t<1){ctx.fillStyle='rgba('+WFX.flash.rgb+','+(0.4*(1-t)).toFixed(3)+')';ctx.fillRect(0,0,W,H);active=true;} else WFX.flash=null; }
+  WFX.rings = WFX.rings.filter(r=>{ const t=(now-r.start)/700; if(t>=1)return false; ctx.strokeStyle='rgba('+r.rgb+','+(1-t).toFixed(3)+')'; ctx.lineWidth=(10*(1-t)+2)*(r.cell/60); ctx.beginPath();ctx.arc(r.x,r.y,r.cell*0.4+t*r.cell*4.0,0,Math.PI*2);ctx.stroke(); active=true; return true; });
+  for(let i=WFX.parts.length-1;i>=0;i--){const p=WFX.parts[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.45*(p.sz/6);p.vx*=0.98;p.life-=0.025;if(p.life<=0){WFX.parts.splice(i,1);continue;}ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.hex;ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz);active=true;}
+  ctx.globalAlpha=1;
+
+  if (WFX.verdict && now < WFX.verdict.until && br && br.width > 0) {
+    active = true;
+    const v = WFX.verdict, vt = (v.until - now)/1400;
+    const col = v.death ? '#E11D2E' : (v.kind==='brilliant' ? '#F5C518' : (v.kind==='close' ? '#FF7A1A' : '#34D399'));
+    ctx.strokeStyle = col; ctx.lineWidth = v.death ? 9 : 7;
+    ctx.strokeRect(br.left-4,br.top-4,br.width+8,br.height+8);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const pop = Math.min(1, (1-vt)*4);
+    ctx.save(); ctx.translate(br.left+br.width/2, br.top+br.height+Math.max(28,br.width*0.085));
+    ctx.scale(0.7+0.35*pop, 0.7+0.35*pop);
+    ctx.fillStyle = col; ctx.font='700 '+Math.round(Math.max(26,br.width*0.085))+'px Antonio, sans-serif';
+    ctx.fillText(v.label, 0, 0); ctx.restore();
+  } else if (WFX.verdict && now >= WFX.verdict.until) { WFX.verdict = null; }
+
+  if (active || judging) WFX.raf = requestAnimationFrame(webFxFrame);
+  else { WFX.raf = null; ctx.clearRect(0,0,W,H); }
 }
 
 function recGateTick() {
@@ -2191,8 +2234,8 @@ function recGateTick() {
   for (let i = 0; i < buf.length; i++) { const v = (buf[i]-128)/128; sum += v*v; }
   const rms = Math.sqrt(sum / buf.length);
   const t = performance.now();
-  if (rms > 0.020) { REC._gateOpen = true; REC._gateHold = t + 500; }            // open on speech, hold open 500ms
-  else if (rms < 0.007 && t > (REC._gateHold || 0)) { REC._gateOpen = false; }    // close only after the hold passes
+  if (rms > 0.012) { REC._gateOpen = true; REC._gateHold = t + 700; }            // open easily, hold open 700ms
+  else if (rms < 0.004 && t > (REC._gateHold || 0)) { REC._gateOpen = false; }    // close only after the hold passes
   n.gate.gain.setTargetAtTime(REC._gateOpen ? 1 : 0, n.ac.currentTime, REC._gateOpen ? 0.008 : 0.18);
   REC._gateRaf = requestAnimationFrame(recGateTick);
 }
