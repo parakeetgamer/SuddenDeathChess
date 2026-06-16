@@ -1830,17 +1830,35 @@ function recLoadPieces() {
 
 function recDrawFrame() {
   const ctx = REC.ctx, W = 540, H = 960, now = Date.now();
-  const pulse = 0.5 + 0.5 * Math.sin(now / 170);
+  const pulse = 0.5 + 0.5 * Math.sin(now / 150);
 
-  if (REC._prevJudging && !S.judging && !S.gameOver) REC._safeUntil = now + 950;
+  if (REC._prevJudging && !S.judging && !S.gameOver) REC._safeUntil = now + 1100;
   if (S.gameOver) REC._safeUntil = 0;
   REC._prevJudging = S.judging;
   const phase = S.gameOver ? 'death' : (S.judging ? 'judging' : (now < (REC._safeUntil || 0) ? 'safe' : 'idle'));
 
+  const bSize = 480, bX = 30, bY = 356, cell = bSize/8;
+  const bcx = bX + bSize/2, bcy = bY + bSize/2;
+
+  if (phase !== REC._prevPhase) {
+    if (phase === 'safe') { REC._fx = { type:'safe', start:now }; recBurst(bcx, bcy, '#34D399', 48); }
+    else if (phase === 'death') { REC._fx = { type:'death', start:now }; recBurst(bcx, bcy, '#E11D2E', 64); }
+  }
+  REC._prevPhase = phase;
+  const fx = REC._fx;
+  const fxT = fx ? (now - fx.start) / 700 : 2;
+
+  ctx.setTransform(1,0,0,1,0,0);
   ctx.fillStyle = '#0E1116'; ctx.fillRect(0,0,W,H);
+  let shx = 0, shy = 0;
+  if (fx && fx.type === 'death' && fxT < 0.45) {
+    const amp = 14 * (1 - fxT/0.45);
+    shx = (Math.random()-0.5) * amp; shy = (Math.random()-0.5) * amp;
+  }
+  ctx.save(); ctx.translate(shx, shy);
   ctx.textBaseline = 'middle';
 
-  const camH = 300;
+  const camH = 280;
   if (REC.video && REC.video.videoWidth) {
     const v = REC.video, vw = v.videoWidth, vh = v.videoHeight;
     const scale = Math.max(W/vw, camH/vh), dw = vw*scale, dh = vh*scale;
@@ -1848,75 +1866,126 @@ function recDrawFrame() {
     ctx.drawImage(v, (W-dw)/2, (camH-dh)/2, dw, dh); ctx.restore();
   } else { ctx.fillStyle = '#191D24'; ctx.fillRect(0,0,W,camH); }
 
-  ctx.fillStyle = 'rgba(225,29,46,0.93)'; ctx.fillRect(0,0,W,50);
-  ctx.textAlign = 'center'; ctx.fillStyle = '#FFFFFF';
-  ctx.font = '700 23px Antonio, sans-serif';
-  ctx.fillText('ONE WRONG MOVE = GAME OVER', W/2, 26);
+  ctx.fillStyle = '#14171C'; ctx.fillRect(0, camH, W, 66);
+  ctx.textAlign = 'left'; ctx.font = '700 21px Antonio, sans-serif';
+  ctx.fillStyle = '#FF7A1A'; ctx.fillText('SUDDEN', 16, camH+26);
+  let sw = ctx.measureText('SUDDEN').width;
+  ctx.fillStyle = '#E11D2E'; ctx.fillText('DEATH', 16+sw+6, camH+26);
+  sw += ctx.measureText('DEATH').width + 12;
+  ctx.fillStyle = '#F5F1EA'; ctx.fillText('CHESS', 16+sw, camH+26);
+  ctx.fillStyle = '#6B7280'; ctx.font = '700 11px JetBrains Mono, monospace';
+  ctx.fillText('ONE WRONG MOVE = DEATH', 16, camH+48);
 
-  const by = camH;
-  ctx.fillStyle = '#191D24'; ctx.fillRect(0, by, W, 46);
-  ctx.textAlign = 'left'; ctx.font = '700 24px Antonio, sans-serif';
-  ctx.fillStyle = '#FF7A1A'; ctx.fillText('SUDDEN', 16, by+24);
-  const sw = ctx.measureText('SUDDEN').width;
-  ctx.fillStyle = '#E11D2E'; ctx.fillText('DEATH', 16+sw+7, by+24);
-  const sw2 = ctx.measureText('DEATH').width;
-  ctx.fillStyle = '#F5F1EA'; ctx.fillText('CHESS', 16+sw+7+sw2+7, by+24);
+  const tv = Math.max(0, (typeof S.timerVal === 'number') ? S.timerVal : 10);
+  const tcol = tv > 5 ? '#34D399' : (tv > 2 ? '#F5C518' : '#E11D2E');
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#52525B'; ctx.font = '700 10px JetBrains Mono, monospace';
+  ctx.fillText('TIME LEFT', W-18, camH+17);
+  const tscale = (tv <= 3 && phase !== 'death') ? (1 + 0.12*pulse) : 1;
+  ctx.save(); ctx.translate(W-22, camH+44); ctx.scale(tscale, tscale);
+  ctx.fillStyle = tcol; ctx.font = '700 40px Antonio, sans-serif';
+  ctx.fillText(String(tv), 0, 0); ctx.restore();
+  ctx.textAlign = 'left';
 
-  const bSize = 500, bX = 20, bY = 362, cell = bSize/8;
   const flipped = S.myColor === 'black';
-  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
-    const col = flipped ? 7-f : f, row = flipped ? r : 7-r;
+  for (let r=0;r<8;r++) for (let f=0;f<8;f++) {
+    const col = flipped?7-f:f, row = flipped?r:7-r;
     ctx.fillStyle = ((f+r)%2===0) ? '#3A2E26' : '#E8D7B5';
     ctx.fillRect(bX+col*cell, bY+row*cell, cell, cell);
   }
   if (REC.pieceImgs && S.chess) {
     [S.lastFrom, S.lastTo].filter(Boolean).forEach(sq => {
       const f = sq.charCodeAt(0)-97, ri = parseInt(sq[1])-1;
-      const col = flipped ? 7-f : f, row = flipped ? ri : 7-ri;
+      const col = flipped?7-f:f, row = flipped?ri:7-ri;
       ctx.fillStyle = 'rgba(255,122,26,0.32)';
       ctx.fillRect(bX+col*cell, bY+row*cell, cell, cell);
     });
-    for (let rr = 1; rr <= 8; rr++) for (let f = 0; f < 8; f++) {
-      const sq = 'abcdefgh'[f] + rr;
-      let p; try { p = S.chess.get(sq); } catch(e) { p = null; }
+    for (let rr=1;rr<=8;rr++) for (let f=0;f<8;f++) {
+      const sq = 'abcdefgh'[f]+rr;
+      let p; try { p = S.chess.get(sq); } catch(e){ p=null; }
       if (!p) continue;
-      const img = REC.pieceImgs[(p.color==='w'?'w':'b') + p.type.toUpperCase()];
+      const img = REC.pieceImgs[(p.color==='w'?'w':'b')+p.type.toUpperCase()];
       if (!img || !img.complete || !img.naturalWidth) continue;
-      const col = flipped ? 7-f : f, row = flipped ? (rr-1) : (8-rr);
-      try { ctx.drawImage(img, bX+col*cell+3, bY+row*cell+3, cell-6, cell-6); } catch(e) {}
+      const col = flipped?7-f:f, row = flipped?(rr-1):(8-rr);
+      try { ctx.drawImage(img, bX+col*cell+3, bY+row*cell+3, cell-6, cell-6); } catch(e){}
     }
   }
-  let bc = '#3D4A5C', bw = 2;
-  if (phase === 'judging') { bc = 'rgba(255,122,26,' + (0.45 + 0.55*pulse).toFixed(2) + ')'; bw = 6; }
-  else if (phase === 'death') { bc = '#E11D2E'; bw = 9; }
-  else if (phase === 'safe') { bc = '#34D399'; bw = 6; }
-  ctx.strokeStyle = bc; ctx.lineWidth = bw;
-  ctx.strokeRect(bX - bw/2, bY - bw/2, bSize + bw, bSize + bw);
 
-  const sy = bY + bSize + 34;
+  if (phase === 'judging') {
+    const g = ctx.createRadialGradient(bcx, bcy, bSize*0.22, bcx, bcy, bSize*0.85);
+    g.addColorStop(0, 'rgba(225,29,46,0)');
+    g.addColorStop(1, 'rgba(225,29,46,' + (0.18 + 0.24*pulse).toFixed(2) + ')');
+    ctx.fillStyle = g; ctx.fillRect(0, camH, W, bY+bSize - camH + 70);
+  }
+
+  if (fx && fxT < 1) {
+    const col = fx.type === 'safe' ? '52,211,153' : '225,29,46';
+    ctx.strokeStyle = 'rgba(' + col + ',' + (1-fxT).toFixed(2) + ')';
+    ctx.lineWidth = 10*(1-fxT)+2;
+    ctx.beginPath(); ctx.arc(bcx, bcy, bSize*0.2 + fxT*bSize*0.55, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(' + col + ',' + (0.45*(1-fxT)).toFixed(2) + ')';
+    ctx.fillRect(0,0,W,H);
+  }
+
+  recDrawParticles(ctx);
+
+  let bcr = '#3D4A5C', bw = 2;
+  if (phase === 'judging') { bcr = 'rgba(255,122,26,' + (0.4+0.6*pulse).toFixed(2) + ')'; bw = 6; }
+  else if (phase === 'death') { bcr = '#E11D2E'; bw = 9; }
+  else if (phase === 'safe') { bcr = '#34D399'; bw = 7; }
+  ctx.strokeStyle = bcr; ctx.lineWidth = bw;
+  ctx.strokeRect(bX-bw/2, bY-bw/2, bSize+bw, bSize+bw);
+
+  const sy = bY + bSize + 30;
   ctx.textAlign = 'center';
   if (phase === 'judging') {
-    const dots = '.'.repeat(1 + (Math.floor(now/320) % 3));
-    ctx.fillStyle = 'rgba(255,122,26,' + (0.55 + 0.45*pulse).toFixed(2) + ')';
+    const dots = '.'.repeat(1 + (Math.floor(now/300)%3));
+    const hb = 1 + 0.07*pulse;
+    ctx.save(); ctx.translate(W/2, sy); ctx.scale(hb, hb);
+    ctx.fillStyle = 'rgba(255,122,26,' + (0.6+0.4*pulse).toFixed(2) + ')';
     ctx.font = '700 30px Antonio, sans-serif';
-    ctx.fillText('DID IT SURVIVE' + dots, W/2, sy);
+    ctx.fillText('DID IT SURVIVE' + dots, 0, 0); ctx.restore();
   } else if (phase === 'death') {
-    ctx.fillStyle = '#E11D2E'; ctx.font = '700 40px Antonio, sans-serif';
-    ctx.fillText('\u2620 GAME OVER', W/2, sy);
+    const pop = fx ? Math.min(1, fxT*3) : 1;
+    ctx.save(); ctx.translate(W/2, sy); ctx.scale(0.7+0.35*pop, 0.7+0.35*pop);
+    ctx.fillStyle = '#E11D2E'; ctx.font = '700 42px Antonio, sans-serif';
+    ctx.fillText('\u2620 GAME OVER', 0, 0); ctx.restore();
   } else if (phase === 'safe') {
     ctx.fillStyle = '#34D399'; ctx.font = '700 38px Antonio, sans-serif';
     ctx.fillText('\u2713 SURVIVED', W/2, sy);
   } else {
-    ctx.fillStyle = '#A1A1AA'; ctx.font = '700 22px Antonio, sans-serif';
-    ctx.fillText('ONE BLUNDER = INSTANT DEATH', W/2, sy);
+    ctx.fillStyle = '#A1A1AA'; ctx.font = '700 21px Antonio, sans-serif';
+    ctx.fillText('MAKE YOUR MOVE', W/2, sy);
   }
 
   ctx.fillStyle = 'rgba(255,122,26,0.16)'; ctx.fillRect(0, H-52, W, 52);
   ctx.fillStyle = '#FF7A1A'; ctx.font = '700 20px JetBrains Mono, monospace';
   ctx.fillText('\u25B6 suddendeathchess.up.railway.app', W/2, H-26);
 
+  ctx.restore();
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   if (REC.active) REC.raf = requestAnimationFrame(recDrawFrame);
+}
+
+function recBurst(cx, cy, color, n) {
+  REC._particles = REC._particles || [];
+  for (let i=0;i<n;i++) {
+    const a = Math.random()*Math.PI*2, sp = 3 + Math.random()*10;
+    REC._particles.push({ x:cx, y:cy, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 2.5, life:1, color });
+  }
+}
+
+function recDrawParticles(ctx) {
+  const ps = REC._particles; if (!ps || !ps.length) return;
+  for (let i = ps.length-1; i >= 0; i--) {
+    const p = ps[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.45; p.vx *= 0.98; p.life -= 0.025;
+    if (p.life <= 0) { ps.splice(i,1); continue; }
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x-3, p.y-3, 6, 6);
+  }
+  ctx.globalAlpha = 1;
 }
 
 async function startRecording(btn) {
