@@ -258,6 +258,8 @@ function handleServerMsg(msg) {
     case 'game_over':   return onGameOver(msg);
     case 'cancelled':   return;
     case 'error':       return toast(msg.message);
+    case 'challenge_created': return onChallengeCreated(msg);
+    case 'challenge_invalid': return onChallengeInvalid();
   }
 }
 
@@ -363,6 +365,131 @@ function hideSearchingOverlay() {
   const ov = document.getElementById('searching-overlay'); if (ov) ov.remove();
 }
 
+// ── TEXTURE PACKS (premium board themes) ─────────────────────────────────
+const TEXTURE_PACKS = [
+  { id:'main',     name:'Main',     light:'#E8D7B5', dark:'#3A2E26' },
+  { id:'midnight', name:'Midnight', light:'#5A6B8C', dark:'#1B2433' },
+  { id:'emerald',  name:'Emerald',  light:'#E9EFD0', dark:'#3C6B4A' },
+  { id:'crimson',  name:'Crimson',  light:'#E7C9C0', dark:'#5E1F22' },
+  { id:'ice',      name:'Ice',      light:'#EAF4FB', dark:'#7FA7C9' },
+  { id:'sunset',   name:'Sunset',   light:'#F7D9A8', dark:'#7A3B5E' },
+  { id:'mono',     name:'Mono',     light:'#D9D9D9', dark:'#4A4A4A' },
+  { id:'royal',    name:'Royal',    light:'#EBD9A8', dark:'#4B2E83' },
+];
+function applyTexturePack(id) {
+  const p = TEXTURE_PACKS.find(t => t.id === id) || TEXTURE_PACKS[0];
+  document.documentElement.style.setProperty('--board-light', p.light);
+  document.documentElement.style.setProperty('--board-dark', p.dark);
+  S.texture = p.id;
+  try { localStorage.setItem('sdc_texture', p.id); } catch(e) {}
+}
+function loadTexturePack() {
+  let id = 'main';
+  try { id = localStorage.getItem('sdc_texture') || 'main'; } catch(e) {}
+  if (!(S.user && S.user.is_premium)) id = 'main';   // packs are premium-only
+  applyTexturePack(id);
+}
+function showTexturePacks() {
+  if (!(S.user && S.user.is_premium)) { showPremium(); return; }
+  let ov = document.getElementById('texture-overlay'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'texture-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2000;overflow-y:auto;background:rgba(14,17,22,0.96);display:flex;align-items:flex-start;justify-content:center;padding:40px 20px';
+  const cur = S.texture || 'main';
+  const cards = TEXTURE_PACKS.map(function(p){
+    const sel = p.id === cur;
+    let grid = '';
+    for (let i = 0; i < 16; i++) { const r = Math.floor(i/4), c = i%4; const dark = (r+c)%2 === 1; grid += '<div style="background:' + (dark?p.dark:p.light) + '"></div>'; }
+    return '<div data-pack="' + p.id + '" class="tex-card" style="cursor:pointer;border-radius:10px;overflow:hidden;border:2px solid ' + (sel?'#F5C518':'rgba(255,255,255,0.1)') + ';background:#191D24">' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);aspect-ratio:1">' + grid + '</div>' +
+      '<div style="padding:8px 10px;display:flex;align-items:center;justify-content:space-between">' +
+        '<span style="font-family:Antonio,sans-serif;font-size:16px;font-weight:700;color:#F5F1EA">' + p.name + '</span>' +
+        (sel ? '<span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#F5C518;letter-spacing:1px">ACTIVE</span>' : '') +
+      '</div></div>';
+  }).join('');
+  ov.innerHTML = '<div style="width:100%;max-width:520px">' +
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px">' +
+      '<div><div style="font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:4px;color:#F5C518;text-transform:uppercase">Premium</div>' +
+      '<h1 style="font-family:Antonio,sans-serif;font-size:32px;font-weight:700;color:#F5F1EA;margin:2px 0 0">Texture Packs</h1></div>' +
+      '<button id="tex-close" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);border:none;color:#F5F1EA;font-size:20px;cursor:pointer">\u00d7</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">' + cards + '</div>' +
+  '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('tex-close').onclick = function(){ ov.remove(); };
+  ov.querySelectorAll('.tex-card').forEach(function(card){
+    card.onclick = function(){ applyTexturePack(card.getAttribute('data-pack')); showTexturePacks(); };
+  });
+}
+
+// ── LOBBY BUTTONS (Play a Friend + Texture Packs) ────────────────────────
+function ensureLobbyButtons() {
+  const findBtn = document.getElementById('btn-find');
+  if (!findBtn || !findBtn.parentElement) return;
+  const container = findBtn.parentElement;
+  if (!document.getElementById('btn-friend')) {
+    const fb = document.createElement('button');
+    fb.id = 'btn-friend'; fb.textContent = '\uD83E\uDD1D PLAY A FRIEND';
+    fb.style.cssText = 'width:100%;max-width:340px;background:transparent;color:#34D399;border:1px solid #34D399;padding:13px;font-family:Antonio,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px';
+    fb.onmouseenter = function(){ fb.style.background = 'rgba(52,211,153,0.08)'; };
+    fb.onmouseleave = function(){ fb.style.background = 'transparent'; };
+    fb.onclick = createChallenge;
+    container.appendChild(fb);
+  }
+  const tex = document.getElementById('btn-texture');
+  if (S.user && S.user.is_premium) {
+    if (!tex) {
+      const tb = document.createElement('button');
+      tb.id = 'btn-texture'; tb.textContent = '\uD83C\uDFA8 TEXTURE PACKS';
+      tb.style.cssText = 'width:100%;max-width:340px;background:transparent;color:#F5C518;border:1px solid #F5C518;padding:13px;font-family:Antonio,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px';
+      tb.onmouseenter = function(){ tb.style.background = 'rgba(245,197,24,0.08)'; };
+      tb.onmouseleave = function(){ tb.style.background = 'transparent'; };
+      tb.onclick = showTexturePacks;
+      container.appendChild(tb);
+    }
+  } else if (tex) { tex.remove(); }
+}
+
+// ── PLAY A FRIEND (client) ───────────────────────────────────────────────
+function createChallenge() {
+  if (!S.token && !(S.user && S.user.guest)) {
+    S.guestPending = true; S._pendingCreateChallenge = true;
+    if (S.ws && S.ws.readyState === WebSocket.OPEN) wsSend({ type: 'guest' });
+    return;
+  }
+  wsSend({ type: 'create_challenge' });
+  toast('Creating your invite\u2026');
+}
+function onChallengeCreated(msg) {
+  const link = location.origin + '/?challenge=' + msg.code;
+  let ov = document.getElementById('challenge-overlay'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'challenge-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(14,17,22,0.95)';
+  ov.innerHTML = '<div style="width:100%;max-width:440px;text-align:center">' +
+    '<div style="font-size:48px">\uD83E\uDD1D</div>' +
+    '<h1 style="font-family:Antonio,sans-serif;font-size:32px;font-weight:700;color:#F5F1EA;margin:8px 0 4px">Invite a Friend</h1>' +
+    '<p style="font-size:14px;color:#A1A1AA;margin-bottom:18px">Send this link. The game starts the moment they open it.</p>' +
+    '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+      '<input id="chal-link" readonly value="' + link + '" style="flex:1;min-width:0;background:#191D24;border:1px solid #3D4A5C;border-radius:6px;color:#F5F1EA;padding:12px;font-family:JetBrains Mono,monospace;font-size:12px"/>' +
+      '<button id="chal-copy" style="background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;border-radius:6px;padding:0 16px;font-family:Antonio,sans-serif;font-size:15px;font-weight:700;cursor:pointer">COPY</button>' +
+    '</div>' +
+    '<div style="font-family:JetBrains Mono,monospace;font-size:12px;color:#52525B;letter-spacing:2px">Waiting for your friend to join<span class="dot-anim"></span></div>' +
+    '<div id="chal-cancel" style="margin-top:22px;font-size:13px;color:#A1A1AA;cursor:pointer;text-decoration:underline">Cancel</div>' +
+  '</div>';
+  document.body.appendChild(ov);
+  const copyBtn = document.getElementById('chal-copy');
+  copyBtn.onclick = function(){
+    const i = document.getElementById('chal-link'); try { i.select(); document.execCommand('copy'); } catch(e) {}
+    try { if (navigator.clipboard) navigator.clipboard.writeText(link); } catch(e) {}
+    copyBtn.textContent = 'COPIED'; setTimeout(function(){ copyBtn.textContent = 'COPY'; }, 1500);
+  };
+  document.getElementById('chal-cancel').onclick = function(){ ov.remove(); try { wsSend({ type: 'cancel_challenge' }); } catch(e) {} };
+}
+function onChallengeInvalid() {
+  hideSearchingOverlay();
+  const ov = document.getElementById('challenge-overlay'); if (ov) ov.remove();
+  toast('That invite link expired or was already used.');
+}
+
 function playAsGuest() {
   S.guestPending = true;
   S.pendingFindMatch = true;
@@ -396,7 +523,11 @@ function onAuthed(user) {
   S.ratingHistory = [user.rating];
   updateNavUser();
   if (user.no_ads || user.is_premium) hideAds();
-  if (S.pendingFindMatch) {
+  ensureLobbyButtons();
+  loadTexturePack();
+  if (S.joinChallenge) { wsSend({ type: 'join_challenge', code: S.joinChallenge }); S.joinChallenge = null; }
+  else if (S._pendingCreateChallenge) { S._pendingCreateChallenge = false; wsSend({ type: 'create_challenge' }); }
+  else if (S.pendingFindMatch) {
     S.pendingFindMatch = false;
     wsSend({ type: 'find_match' });
   }
@@ -616,6 +747,7 @@ function drawChart() {
 // ══════════════════════════════════════════
 function onGameStart(msg) {
   hideSearchingOverlay();
+  { const co = document.getElementById('challenge-overlay'); if (co) co.remove(); }
   searching = false;
   document.getElementById('btn-find').classList.remove('searching');
   document.getElementById('btn-find').textContent = 'FIND MATCH';
@@ -2468,6 +2600,8 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
 // INIT
 // ══════════════════════════════════════════
 (async function init() {
+  const _chal = new URLSearchParams(location.search).get('challenge');
+  if (_chal) S.joinChallenge = _chal;
   connectWS();
   initStockfish();
 
@@ -2489,6 +2623,16 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
         S.token = null;
       }
     } catch(e) {}
+  }
+
+  if (S.joinChallenge) {
+    showSearchingOverlay();
+    history.replaceState({}, '', location.pathname);
+    if (!S.token) {
+      S.guestPending = true;
+      if (S.ws && S.ws.readyState === WebSocket.OPEN) wsSend({ type: 'guest' });
+    }
+    // onAuthed fires join_challenge once the socket is authenticated
   }
 
   const _ck = new URLSearchParams(location.search).get('checkout');

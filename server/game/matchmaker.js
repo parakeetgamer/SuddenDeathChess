@@ -10,6 +10,7 @@ const { BotPlayer } = require('./bot');
 
 const queue = [];
 const activeGames = new Map();
+const challenges = new Map();   // code -> { ws, player } for Play-a-Friend invites
 const BOT_WAIT_MS = 10000;
 const BLUNDER_THRESH = -1.5;
 
@@ -35,6 +36,9 @@ function handleConnection(ws) {
       case 'ready':      return doReady(ws);
       case 'committed':  return doCommitted(ws);
       case 'guest':      return doGuestAuth(ws);
+      case 'create_challenge': return doCreateChallenge(ws);
+      case 'join_challenge':   return doJoinChallenge(ws, msg);
+      case 'cancel_challenge': return doCancelChallenge(ws);
     }
   });
 
@@ -42,6 +46,7 @@ function handleConnection(ws) {
     console.log('[CLOSE]', ws.player ? ws.player.username : 'unknown');
     removeFromQueue(ws);
     if (ws.botTimer) { clearTimeout(ws.botTimer); ws.botTimer = null; }
+    if (ws.challengeCode) { challenges.delete(ws.challengeCode); ws.challengeCode = null; }
     const session = findSession(ws);
     if (session && !session.over) {
       const color = colorOf(session, ws);
@@ -129,6 +134,38 @@ function doCancel(ws) {
   removeFromQueue(ws);
   if (ws.botTimer) { clearTimeout(ws.botTimer); ws.botTimer = null; }
   send(ws, { type: 'cancelled' });
+}
+
+// ── PLAY A FRIEND (private challenge links) ──────────────────────────────
+function makeChallengeCode() {
+  let code;
+  do { code = Math.random().toString(36).slice(2, 8); } while (challenges.has(code));
+  return code;
+}
+function doCreateChallenge(ws) {
+  if (!ws.player) return send(ws, { type: 'error', message: 'Not authenticated.' });
+  if (ws.challengeCode) challenges.delete(ws.challengeCode);   // one active invite per connection
+  const code = makeChallengeCode();
+  challenges.set(code, { ws, player: ws.player });
+  ws.challengeCode = code;
+  send(ws, { type: 'challenge_created', code });
+  console.log('[CHALLENGE] created', code, 'by', ws.player.username);
+  setTimeout(() => { const e = challenges.get(code); if (e && e.ws === ws) challenges.delete(code); }, 600000); // 10 min expiry
+}
+function doJoinChallenge(ws, msg) {
+  if (!ws.player) return send(ws, { type: 'error', message: 'Not authenticated.' });
+  const code = String(msg.code || '').toLowerCase();
+  const entry = challenges.get(code);
+  if (!entry || entry.ws.readyState !== 1 || entry.ws === ws) {
+    return send(ws, { type: 'challenge_invalid' });
+  }
+  challenges.delete(code);
+  entry.ws.challengeCode = null;
+  console.log('[CHALLENGE] joined', code, ':', entry.player.username, 'vs', ws.player.username);
+  startHumanGame(entry.ws, entry.player, ws, ws.player);   // creator plays white
+}
+function doCancelChallenge(ws) {
+  if (ws.challengeCode) { challenges.delete(ws.challengeCode); ws.challengeCode = null; }
 }
 
 function removeFromQueue(ws) {
@@ -376,7 +413,20 @@ function endGame(session, winnerColor, reason) {
   const loser  = winnerColor === 'white' ? session.black : session.white;
   db.get('SELECT * FROM users WHERE id=?', [winner.id], (e1, wu) => {
     db.get('SELECT * FROM users WHERE id=?', [loser.id], (e2, lu) => {
-      if (!wu || !lu) return;
+      if (!wu || !lu) {
+        // A guest is involved (no DB row) — resolve casually, no rating changes.
+        bcast(session, {
+          type: 'game_over', reason, winner: winnerColor, winnerUsername: winner.username,
+          blunderDetail: session.blunderDetail || null,
+          ratings: {
+            white: { old: session.white.rating, new: session.white.rating, delta: 0 },
+            black: { old: session.black.rating, new: session.black.rating, delta: 0 }
+          },
+          noAdsUnlocked: { white: false, black: false }
+        });
+        activeGames.delete(session.id);
+        return;
+      }
       const elo = calculateElo(wu.rating, lu.rating, wu.games, lu.games);
       db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+1, games=games+1 WHERE id=?',
         [elo.winnerNew, elo.winnerNew, winner.id]);
