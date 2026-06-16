@@ -43,7 +43,7 @@ const S = {
   gameOver: false,
   judging: false,        // true during the suspense/verdict beat
   preMoveEval: null,     // cached white-POV eval of position before my move
-  timerVal: 10,
+  timerVal: 5,
   localTimerInterval: null,
   moveTimings: [],
   moveStartTime: 0,
@@ -634,7 +634,7 @@ function startPreGameCountdown(iGoFirst) {
     if (val < 0) {
       clearInterval(tick);
       overlay.style.display = 'none';
-      if (iGoFirst) startLocalTimer();
+      startLocalTimer();
     }
   }, 1000);
 }
@@ -1051,9 +1051,7 @@ async function executeMyMove(from, to) {
   }
 
   stopLocalTimer();
-  S.timerVal = 10;
-  updateTimerUI();
-  // hand the clock to the opponent — pause our display until it's our turn again
+  // hand the clock to the opponent until our turn comes back
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
   S.selected = null; S.legalMoves = [];
@@ -1354,12 +1352,14 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
   }
 
   updateTurnUI();
+  startLocalTimer();   // opponent's turn -- restart and count down
 }
 
 // Opponent's move comes from server
 async function onOpponentMove(msg) {
   if (!S.chess || msg.color === S.myColor) return;
   if (msg.isBlunder) return; // server will send game_over
+  stopLocalTimer();   // opponent moved -- stop their clock immediately
 
   // Capture the position BEFORE their move so we can judge it like ours.
   const fenBeforeOpp = S.chess.fen();
@@ -1452,7 +1452,7 @@ function onServerTimer(msg) {
 // LOCAL TIMER (mirrors server timer)
 // ══════════════════════════════════════════
 function startLocalTimer() {
-  S.timerVal = 10;
+  S.timerVal = 5;
   S.moveStartTime = Date.now();
   updateTimerUI();
   S.localTimerInterval = setInterval(() => {
@@ -1472,9 +1472,9 @@ function updateTimerUI() {
   const el = document.getElementById('timer-num');
   const fill = document.getElementById('timer-fill');
   el.textContent = S.timerVal;
-  fill.style.width = (S.timerVal/10*100)+'%';
-  el.className = 'timer-big ' + (S.timerVal>5?'ok':S.timerVal>2?'warn':'crit');
-  fill.style.background = S.timerVal>5?'var(--green)':S.timerVal>2?'var(--yellow)':'var(--red)';
+  fill.style.width = (S.timerVal/5*100)+'%';
+  el.className = 'timer-big ' + (S.timerVal>3?'ok':S.timerVal>1?'warn':'crit');
+  fill.style.background = S.timerVal>3?'var(--green)':S.timerVal>1?'var(--yellow)':'var(--red)';
 }
 
 // ══════════════════════════════════════════
@@ -1896,12 +1896,12 @@ function recDrawFrame() {
   ctx.fillStyle = '#6B7280'; ctx.font = '700 11px JetBrains Mono, monospace';
   ctx.fillText('ONE WRONG MOVE = DEATH', 16, camH+48);
 
-  const tv = Math.max(0, (typeof S.timerVal === 'number') ? S.timerVal : 10);
-  const tcol = tv > 5 ? '#34D399' : (tv > 2 ? '#F5C518' : '#E11D2E');
+  const tv = Math.max(0, (typeof S.timerVal === 'number') ? S.timerVal : 5);
+  const tcol = tv > 3 ? '#34D399' : (tv > 1 ? '#F5C518' : '#E11D2E');
   ctx.textAlign = 'right';
   ctx.fillStyle = '#52525B'; ctx.font = '700 10px JetBrains Mono, monospace';
   ctx.fillText('TIME LEFT', W-18, camH+17);
-  const tscale = (tv <= 3 && phase !== 'death') ? (1 + 0.12*pulse) : 1;
+  const tscale = (tv <= 2 && phase !== 'death') ? (1 + 0.12*pulse) : 1;
   ctx.save(); ctx.translate(W-22, camH+44); ctx.scale(tscale, tscale);
   ctx.fillStyle = tcol; ctx.font = '700 40px Antonio, sans-serif';
   ctx.fillText(String(tv), 0, 0); ctx.restore();
