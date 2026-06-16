@@ -1445,6 +1445,7 @@ async function onOpponentMove(msg) {
 // Server timer sync
 function onServerTimer(msg) {
   S.timerVal = msg.value;
+  if (msg.value <= 3 && msg.value > 0) sndTick();
   updateTimerUI();
 }
 
@@ -1452,15 +1453,12 @@ function onServerTimer(msg) {
 // LOCAL TIMER (mirrors server timer)
 // ══════════════════════════════════════════
 function startLocalTimer() {
+  // The server is the authoritative clock and broadcasts the countdown each
+  // second (onServerTimer). We just reset the display so a new turn shows a
+  // full 5 immediately, then follow the server -- no competing local interval.
   S.timerVal = 5;
   S.moveStartTime = Date.now();
   updateTimerUI();
-  S.localTimerInterval = setInterval(() => {
-    S.timerVal--;
-    if (S.timerVal <= 3 && S.timerVal > 0) sndTick();
-    updateTimerUI();
-    if (S.timerVal <= 0) stopLocalTimer();
-  }, 1000);
 }
 
 function stopLocalTimer() {

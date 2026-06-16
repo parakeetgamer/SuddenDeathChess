@@ -117,7 +117,7 @@ function startHumanGame(wsW, white, wsB, black) {
     white, black,
     moves: [], turn: 'white',
     startedAt: Date.now(),
-    timer: null, timerVal: 10, over: false
+    timer: null, timerVal: 5, over: false
   };
   activeGames.set(id, session);
   db.run("INSERT INTO games (id,white_id,black_id,white_name,black_name,white_rating,black_rating,moves) VALUES (?,?,?,?,?,?,?,'[]')",
@@ -140,7 +140,7 @@ function startBotGame(ws) {
     white: human, black: null,
     moves: [], turn: 'white',
     startedAt: Date.now(),
-    timer: null, timerVal: 10, over: false,
+    timer: null, timerVal: 5, over: false,
     bot: null
   };
   const bot = new BotPlayer(session, 'b', human.rating);
@@ -204,7 +204,7 @@ function doMove(ws, msg) {
 
 function startTurnTimer(session, color) {
   if (session.isBot && color === 'black') return;
-  session.timerVal = 10;
+  session.timerVal = 5;
   session.timer = setInterval(() => {
     session.timerVal--;
     if (session.isBot) {
