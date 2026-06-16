@@ -1325,6 +1325,8 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
   // Genuinely good move (eval gained ≥0.8) gets a reward flash
   if (quality === 'good') {
     goodEffect(to, playerPovDelta, !!moveObj.captured);
+  } else if (safeSq) {
+    sparkle(safeSq, 10, 'green');
   }
 
   // You survived. Send the move to the server now (held until verdict so the
@@ -1839,14 +1841,24 @@ function recDrawFrame() {
 
   const bSize = 480, bX = 30, bY = 356, cell = bSize/8;
   const bcx = bX + bSize/2, bcy = bY + bSize/2;
+  const flipped = S.myColor === 'black';
+  function originOf(sq) {
+    if (!sq || sq.length < 2) return [bcx, bcy];
+    const f = sq.charCodeAt(0)-97, ri = parseInt(sq[1])-1;
+    if (isNaN(f) || isNaN(ri)) return [bcx, bcy];
+    const col = flipped?7-f:f, row = flipped?ri:7-ri;
+    return [bX+col*cell+cell/2, bY+row*cell+cell/2];
+  }
 
   if (phase !== REC._prevPhase) {
-    if (phase === 'safe') { REC._fx = { type:'safe', start:now }; recBurst(bcx, bcy, '#34D399', 48); }
-    else if (phase === 'death') { REC._fx = { type:'death', start:now }; recBurst(bcx, bcy, '#E11D2E', 64); }
+    const o = originOf(S.lastTo);
+    if (phase === 'safe') { REC._fx = { type:'safe', start:now, x:o[0], y:o[1] }; recBurst(o[0], o[1], '#34D399', 48); }
+    else if (phase === 'death') { REC._fx = { type:'death', start:now, x:o[0], y:o[1] }; recBurst(o[0], o[1], '#E11D2E', 64); }
   }
   REC._prevPhase = phase;
   const fx = REC._fx;
   const fxT = fx ? (now - fx.start) / 700 : 2;
+  const fxX = fx ? fx.x : bcx, fxY = fx ? fx.y : bcy;
 
   ctx.setTransform(1,0,0,1,0,0);
   ctx.fillStyle = '#0E1116'; ctx.fillRect(0,0,W,H);
@@ -1887,7 +1899,6 @@ function recDrawFrame() {
   ctx.fillText(String(tv), 0, 0); ctx.restore();
   ctx.textAlign = 'left';
 
-  const flipped = S.myColor === 'black';
   for (let r=0;r<8;r++) for (let f=0;f<8;f++) {
     const col = flipped?7-f:f, row = flipped?r:7-r;
     ctx.fillStyle = ((f+r)%2===0) ? '#3A2E26' : '#E8D7B5';
@@ -1922,8 +1933,8 @@ function recDrawFrame() {
     const col = fx.type === 'safe' ? '52,211,153' : '225,29,46';
     ctx.strokeStyle = 'rgba(' + col + ',' + (1-fxT).toFixed(2) + ')';
     ctx.lineWidth = 10*(1-fxT)+2;
-    ctx.beginPath(); ctx.arc(bcx, bcy, bSize*0.2 + fxT*bSize*0.55, 0, Math.PI*2); ctx.stroke();
-    ctx.fillStyle = 'rgba(' + col + ',' + (0.45*(1-fxT)).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(fxX, fxY, cell*0.4 + fxT*bSize*0.5, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(' + col + ',' + (0.4*(1-fxT)).toFixed(2) + ')';
     ctx.fillRect(0,0,W,H);
   }
 
@@ -2012,7 +2023,20 @@ async function startRecording(btn) {
 
   try { REC.stream = REC.canvas.captureStream(30); }
   catch(e) { toast('Recording blocked by the browser.'); stopRecordingCleanup(); return; }
-  REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    REC.audioCtx = new AC();
+    const aSrc = REC.audioCtx.createMediaStreamSource(REC.userStream);
+    const comp = REC.audioCtx.createDynamicsCompressor();
+    comp.threshold.value = -30; comp.knee.value = 22; comp.ratio.value = 9;
+    comp.attack.value = 0.003; comp.release.value = 0.18;
+    const aGain = REC.audioCtx.createGain(); aGain.gain.value = 2.4;
+    const aDest = REC.audioCtx.createMediaStreamDestination();
+    aSrc.connect(comp); comp.connect(aGain); aGain.connect(aDest);
+    aDest.stream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
+  } catch (e) {
+    REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
+  }
 
   REC.chunks = [];
   try {
@@ -2048,11 +2072,13 @@ function stopRecordingCleanup() {
   REC.active = false;
   if (REC.raf) cancelAnimationFrame(REC.raf);
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
+  if (REC.audioCtx) { try { REC.audioCtx.close(); } catch(e){} REC.audioCtx = null; }
 }
 
 function finishRecording() {
   const blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
+  if (REC.audioCtx) { try { REC.audioCtx.close(); } catch(e){} REC.audioCtx = null; }
   const url = URL.createObjectURL(blob);
   const fname = 'sudden-death-' + Date.now() + '.' + REC.ext;
   const file = window.File ? new File([blob], fname, { type: blob.type }) : null;
