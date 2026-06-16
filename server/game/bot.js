@@ -51,7 +51,7 @@ class BotPlayer {
 
   scheduleMove() {
     if (!this.active || this.session.over) return;
-    const delay = 800 + Math.random() * Math.random() * 4500; // human-ish: usually quick, sometimes long
+    const delay = Math.min(4800, 800 + Math.random() * Math.random() * 4500); // human-ish, capped under the 5s clock
     setTimeout(() => {
       try {
         this.makeMove();

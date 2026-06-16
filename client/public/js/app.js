@@ -1052,6 +1052,7 @@ async function executeMyMove(from, to) {
   }
 
   stopLocalTimer();
+  wsSend({ type: 'committed' });   // freeze our server clock now -- don't let the eval eat it
   // hand the clock to the opponent until our turn comes back
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();

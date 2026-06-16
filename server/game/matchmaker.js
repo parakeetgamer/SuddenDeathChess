@@ -33,6 +33,7 @@ function handleConnection(ws) {
       case 'resign':     return doResign(ws);
       case 'ping':       return send(ws, { type: 'pong' });
       case 'ready':      return doReady(ws);
+      case 'committed':  return doCommitted(ws);
     }
   });
 
@@ -179,6 +180,14 @@ function doReady(ws) {
   startTurnTimer(session, 'white');
 }
 
+function doCommitted(ws) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  const color = colorOf(session, ws);
+  if (!color || session.turn !== color) return;   // only the side to move can commit
+  stopTurnTimer(session);                          // freeze the clock during the client's eval
+}
+
 function doMove(ws, msg) {
   const session = findSession(ws);
   if (!session || session.over) return;
@@ -205,15 +214,11 @@ function doMove(ws, msg) {
 
   const next = color === 'white' ? 'black' : 'white';
   session.turn = next;
-  if (session.isBot && next === 'black') {
-    session.bot.scheduleMove();
-  } else {
-    startTurnTimer(session, next);
-  }
+  if (session.isBot && next === 'black') session.bot.scheduleMove();
+  startTurnTimer(session, next);   // run the clock for every turn, including the bot's
 }
 
 function startTurnTimer(session, color) {
-  if (session.isBot && color === 'black') return;
   session.timerVal = 5;
   session.timer = setInterval(() => {
     session.timerVal--;
@@ -224,6 +229,7 @@ function startTurnTimer(session, color) {
     }
     if (session.timerVal <= 0) {
       stopTurnTimer(session);
+      if (session.isBot && color === 'black') return;   // bot's display clock -- it still moves; never forfeit it
       const username = session.isBot
         ? session.white.username
         : (color === 'white' ? session.white.username : session.black.username);
