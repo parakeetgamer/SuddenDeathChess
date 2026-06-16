@@ -34,7 +34,8 @@ class BotPlayer {
     const bandMid = (arch.ratingMin + arch.ratingMax) / 2;
     const raw = bandMid * 0.6 + hr * 0.4 + (Math.floor(Math.random() * 200) - 100);
     this.rating = Math.max(arch.ratingMin, Math.min(arch.ratingMax, Math.round(raw)));
-    this.blunderChance = arch.blunder;
+    this.strength = this.rating + 200;        // bot plays 200 Elo above the rating it shows
+    this.blunderChance = arch.blunder * 0.6;  // tougher: blunders less than its archetype baseline
     this.capWeight = arch.capWeight; // how much it favors captures/aggression
     this.active = true;
     console.log('[BOT] created', this.name, '(' + arch.label + ')',
@@ -147,7 +148,7 @@ class BotPlayer {
 
   chooseMove(moves) {
     const scored = this.scoreMoves(moves);
-    const topN = Math.max(1, Math.round((2200 - this.rating) / 400));
+    const topN = Math.max(1, Math.round((2200 - this.strength) / 400));
     const top = scored.slice(0, Math.min(topN, scored.length));
     return top[Math.floor(Math.random() * top.length)].move;
   }

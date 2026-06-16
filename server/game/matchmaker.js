@@ -73,9 +73,10 @@ function doAuth(ws, msg) {
 }
 
 let guestSeq = 0;
+function guestName() { return 'guest' + Math.floor(1000000000 + Math.random() * 9000000000); }
 function doGuestAuth(ws) {
   guestSeq++;
-  const name = 'Guest' + (1000 + Math.floor(Math.random() * 9000));
+  const name = guestName();
   ws.player = {
     id: -100 - guestSeq,          // negative sentinel: never collides with a real users row
     username: name,
@@ -91,7 +92,12 @@ function doGuestAuth(ws) {
 
 function doFindMatch(ws) {
   if (!ws.player) return send(ws, { type: 'error', message: 'Not authenticated.' });
-  if (ws.player.guest) { startBotGame(ws); return; }   // guests skip matchmaking -> instant bot game
+  if (ws.player.guest) {                                 // guests never wait in the real queue,
+    send(ws, { type: 'searching' });                     // but still see a brief "searching" beat
+    if (ws.botTimer) clearTimeout(ws.botTimer);
+    ws.botTimer = setTimeout(() => { if (ws.readyState === 1) startBotGame(ws); }, 2200 + Math.random() * 2200);
+    return;
+  }
   if (queue.find(e => e.ws === ws)) return;
   queue.push({ ws, player: ws.player });
   send(ws, { type: 'searching' });
@@ -165,6 +171,7 @@ function startBotGame(ws) {
     bot: null
   };
   const bot = new BotPlayer(session, 'b', human.rating);
+  if (human.guest) bot.name = guestName();   // guests face an anonymous "guest" opponent, not a named bot
   session.bot = bot;
   session.black = { id: -1, username: bot.name, rating: bot.rating };
 
@@ -327,13 +334,18 @@ function endGame(session, winnerColor, reason) {
   if (session.isBot) {
     const human = session.white;
     const humanWon = winnerColor === 'white';
-    const delta = humanWon ? 15 : -12;
     // Read the CURRENT rating from the DB — not the stale snapshot captured at
     // connect time — so consecutive games don't overwrite each other.
-    db.get('SELECT rating, peak_rating, no_ads FROM users WHERE id=?', [human.id], (err, row) => {
+    db.get('SELECT rating, peak_rating, no_ads, games FROM users WHERE id=?', [human.id], (err, row) => {
       const curRating = (row && typeof row.rating === 'number') ? row.rating : human.rating;
       const curPeak   = (row && typeof row.peak_rating === 'number') ? row.peak_rating : curRating;
       const curNoAds  = row ? row.no_ads : human.no_ads;
+      const curGames  = (row && typeof row.games === 'number') ? row.games : (human.games || 0);
+      const botRating = session.bot.rating;
+      const _elo = humanWon
+        ? calculateElo(curRating, botRating, curGames, 30)
+        : calculateElo(botRating, curRating, 30, curGames);
+      const delta = humanWon ? _elo.winnerDelta : _elo.loserDelta;
       const newRating = Math.max(100, curRating + delta);
       db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
         [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, newRating, human.id]);
