@@ -510,11 +510,11 @@ async function showProfile() {
   document.getElementById('ps-winpct').textContent = u.games ? Math.round(u.wins/u.games*100)+'%' : '—';
 
   const adsEl = document.getElementById('ads-status');
-  if (u.no_ads) {
-    adsEl.textContent = '✓ Ads disabled — you reached 1600. Legend status.';
+  if (u.is_premium) {
+    adsEl.textContent = '✓ Premium — ads disabled.';
     adsEl.className = 'ads-status no-ads';
   } else {
-    adsEl.textContent = `Reach 1600 Elo to remove ads forever. (Peak: ${u.peak_rating})`;
+    adsEl.textContent = 'Go Premium to remove ads and unlock extras.';
     adsEl.className = 'ads-status';
   }
 
@@ -1756,7 +1756,6 @@ function onGameOver(msg) {
     S.ratingHistory.push(myRatings.new);
     updateNavUser();
     document.getElementById('nav-rating').textContent = myRatings.new;
-    if (myRatings.new >= 1600 && !S.user.no_ads) { S.user.no_ads = true; hideAds(); }
   }
 
   const myMoves = S.moveHistory.filter(m => m.color === S.myColor);

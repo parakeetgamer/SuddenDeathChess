@@ -347,8 +347,8 @@ function endGame(session, winnerColor, reason) {
         : calculateElo(botRating, curRating, 30, curGames);
       const delta = humanWon ? _elo.winnerDelta : _elo.loserDelta;
       const newRating = Math.max(100, curRating + delta);
-      db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
-        [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, newRating, human.id]);
+      db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+?, losses=losses+?, games=games+1 WHERE id=?',
+        [newRating, newRating, humanWon ? 1 : 0, humanWon ? 0 : 1, human.id]);
       // Keep the in-memory player fresh for the NEXT game on this connection.
       human.rating = newRating;
       human.peak_rating = Math.max(curPeak, newRating);
@@ -364,7 +364,7 @@ function endGame(session, winnerColor, reason) {
           white: { old: curRating, new: newRating, delta },
           black: { old: session.bot.rating, new: session.bot.rating, delta: 0 }
         },
-        noAdsUnlocked: { white: newRating >= 1600 && !curNoAds, black: false }
+        noAdsUnlocked: { white: false, black: false }
       };
       send(session.whiteWs, result);
     });
@@ -378,8 +378,8 @@ function endGame(session, winnerColor, reason) {
     db.get('SELECT * FROM users WHERE id=?', [loser.id], (e2, lu) => {
       if (!wu || !lu) return;
       const elo = calculateElo(wu.rating, lu.rating, wu.games, lu.games);
-      db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+1, games=games+1, no_ads=CASE WHEN MAX(peak_rating,?)>=1600 THEN 1 ELSE no_ads END WHERE id=?',
-        [elo.winnerNew, elo.winnerNew, elo.winnerNew, winner.id]);
+      db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), wins=wins+1, games=games+1 WHERE id=?',
+        [elo.winnerNew, elo.winnerNew, winner.id]);
       db.run('UPDATE users SET rating=?, peak_rating=MAX(peak_rating,?), losses=losses+1, games=games+1 WHERE id=?',
         [elo.loserNew, elo.loserNew, loser.id]);
       const dur = Math.round((Date.now() - session.startedAt) / 1000);
@@ -400,10 +400,7 @@ function endGame(session, winnerColor, reason) {
                    new: winnerColor==='black'?elo.winnerNew:elo.loserNew,
                    delta: winnerColor==='black'?elo.winnerDelta:elo.loserDelta }
         },
-        noAdsUnlocked: {
-          white: elo.winnerNew>=1600 && winnerColor==='white' && !wu.no_ads,
-          black: elo.winnerNew>=1600 && winnerColor==='black' && !wu.no_ads
-        }
+        noAdsUnlocked: { white: false, black: false }
       };
       bcast(session, result);
       activeGames.delete(session.id);
