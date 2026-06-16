@@ -23,6 +23,9 @@ db.serialize(() => {
     no_ads      INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   )`);
+  db.run('ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0', () => {});
+  db.run('ALTER TABLE users ADD COLUMN stripe_customer_id TEXT', () => {});
+  db.run('ALTER TABLE users ADD COLUMN premium_until TEXT', () => {});
   db.run(`CREATE TABLE IF NOT EXISTS games (
     id            TEXT    PRIMARY KEY,
     white_id      INTEGER,

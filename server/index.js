@@ -15,12 +15,15 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 
 // ── Middleware ──
 app.use(cors());
+// Stripe webhook needs the RAW body for signature verification -- mount BEFORE express.json()
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), require('./routes/payments').webhook);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../client/public')));
 
 // ── REST API routes ──
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/payments', require('./routes/payments').router);
 
 // Health check for Railway/Render
 app.get('/health', (req, res) => res.json({ status: 'ok' }));

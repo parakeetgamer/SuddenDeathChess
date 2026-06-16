@@ -375,7 +375,7 @@ function onAuthed(user) {
   S.user = user;
   S.ratingHistory = [user.rating];
   updateNavUser();
-  if (user.no_ads) hideAds();
+  if (user.no_ads || user.is_premium) hideAds();
   if (S.pendingFindMatch) {
     S.pendingFindMatch = false;
     wsSend({ type: 'find_match' });
@@ -1190,7 +1190,7 @@ async function blunderReplay(fenBefore, badFrom, badTo) {
   lbl.className = 'replay-label show';
 
   // 3. ask the engine for the best move from that position
-  const best = null; // best-move reveal is now premium — gated on the result screen
+  const best = (S.user && S.user.is_premium) ? await sfBestMove(fenBefore) : null; // premium unlock
 
   if (best) {
     const fEl = document.querySelector('#board [data-sq="' + best.from + '"]');
@@ -1848,14 +1848,35 @@ function showPremium() {
         '<div style="font-size:12px;color:#52525B;margin-top:2px">that is just $0.16 a day — less than a single coffee</div>' +
         '<div style="font-size:12px;color:#34D399;margin-top:6px">or $39.99 / year — save 33%</div>' +
       '</div>' +
-      '<button id="prem-cta" style="width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:18px;font-family:Antonio,sans-serif;font-size:24px;font-weight:700;letter-spacing:3px;cursor:pointer;border-radius:6px;box-shadow:0 0 36px rgba(255,122,26,.4)">UNLOCK PREMIUM</button>' +
+      '<button id="prem-cta" style="width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:16px;font-family:Antonio,sans-serif;font-size:21px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px;box-shadow:0 0 36px rgba(255,122,26,.4)">SUBSCRIBE \u2014 $4.99/mo</button>' +
+      '<button id="prem-cta-year" style="width:100%;margin-top:10px;background:transparent;color:#34D399;border:1px solid #34D399;padding:14px;font-family:Antonio,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px">Best value \u2014 $39.99/yr</button>' +
       '<div style="text-align:center;font-size:11px;color:#52525B;margin-top:12px">Cancel anytime · No commitment</div>' +
       '<div id="prem-later" style="text-align:center;font-size:13px;color:#A1A1AA;margin-top:18px;cursor:pointer;text-decoration:underline">Maybe later</div>' +
     '</div>';
   document.body.appendChild(ov);
   document.getElementById('prem-close').onclick = closePremium;
   document.getElementById('prem-later').onclick = closePremium;
-  document.getElementById('prem-cta').onclick = () => toast('Premium checkout is coming soon!');
+  document.getElementById('prem-cta').onclick = () => startCheckout('monthly');
+  { const yb = document.getElementById('prem-cta-year'); if (yb) yb.onclick = () => startCheckout('annual'); }
+}
+
+function startCheckout(plan) {
+  if (!S.token || (S.user && S.user.guest)) {
+    closePremium();
+    if (typeof signupMode !== 'undefined' && !signupMode) { const t = document.getElementById('btn-toggle'); if (t) t.click(); }
+    show('s-login');
+    toast('Create a free account first, then subscribe');
+    return;
+  }
+  toast('Opening secure checkout\u2026');
+  fetch('/api/payments/create-checkout-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.token },
+    body: JSON.stringify({ plan: plan === 'annual' ? 'annual' : 'monthly' })
+  }).then(r => r.json()).then(data => {
+    if (data && data.url) window.location.href = data.url;
+    else toast(data && data.error ? data.error : 'Checkout is not available yet.');
+  }).catch(() => toast('Could not start checkout. Try again.'));
 }
 
 function closePremium() {
@@ -2382,7 +2403,7 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
         S.user = await res.json();
         S.ratingHistory = [S.user.rating];
         updateNavUser();
-        if (S.user.no_ads) hideAds();
+        if (S.user.no_ads || S.user.is_premium) hideAds();
         loadLeaderboard();
         show('s-lobby');
       } else {
@@ -2390,6 +2411,16 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
         S.token = null;
       }
     } catch(e) {}
+  }
+
+  const _ck = new URLSearchParams(location.search).get('checkout');
+  if (_ck === 'success') {
+    toast('\uD83C\uDF89 Premium unlocked \u2014 thank you!');
+    if (S.token) { try { const r = await fetch('/api/users/me', { headers: { 'Authorization': 'Bearer ' + S.token } }); if (r.ok) { S.user = await r.json(); updateNavUser(); if (S.user.no_ads || S.user.is_premium) hideAds(); } } catch(e) {} }
+    history.replaceState({}, '', location.pathname);
+  } else if (_ck === 'cancel') {
+    toast('Checkout canceled \u2014 no charge.');
+    history.replaceState({}, '', location.pathname);
   }
 })();
 
