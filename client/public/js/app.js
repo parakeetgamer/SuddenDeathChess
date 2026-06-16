@@ -889,28 +889,31 @@ function shatterBoard(toSquare) {
 // Spawn the particle/shockwave explosion on the blundered square.
 // Tiered good-move celebration. delta = how much the move gained (pawns).
 function goodEffect(toSquare, delta, wasCapture) {
+  fx2Style();
   const sq = document.querySelector('#board [data-sq="' + toSquare + '"]');
-  const brilliant = delta >= 2.0;
-  if (brilliant) {
+  const c = fx2SqCenter(toSquare);
+  if (delta >= 2.0) {
     sndBrilliant();
-    // gold edge glow
-    const glow = document.createElement('div'); glow.className = 'brilliant-edge';
-    document.body.appendChild(glow);
-    // big text
-    const t = document.createElement('div'); t.className = 'brilliant-text';
-    t.textContent = 'BRILLIANT'; document.body.appendChild(t);
-    const sub = document.createElement('div'); sub.className = 'brilliant-sub';
-    sub.textContent = wasCapture ? 'What a strike' : 'Pure precision';
-    document.body.appendChild(sub);
-    if (sq) sparkle(sq, 16, 'gold');
-    setTimeout(() => { glow.remove(); t.remove(); sub.remove(); }, 1600);
+    const labels = ['BRILLIANT','GENIUS','MASTERFUL','SPECTACULAR','INSANE','UNREAL'];
+    const label = labels[(Math.random()*labels.length)|0];
+    const v = ['edge','fireworks','rays','stars','flash','combo'][(Math.random()*6)|0];
+    if (v === 'edge') { const g = document.createElement('div'); g.className = 'brilliant-edge'; document.body.appendChild(g); if (sq) sparkle(sq, 16, 'gold'); setTimeout(() => g.remove(), 1600); }
+    else if (v === 'fireworks') bfx2Fireworks(3, true);
+    else if (v === 'rays') fx2Rays(c.x, c.y, '#F5C518');
+    else if (v === 'stars') bfx2StarBurst(c.x, c.y, 18);
+    else if (v === 'flash') { fx2Flash('245,197,24', 0.45); bfx2Sparks(c.x, c.y, '#F5C518', 26); }
+    else { bfx2Sparks(c.x, c.y, '#F5C518', 20); bfx2StarBurst(c.x, c.y, 8); }
+    fx2BrilliantText(label, wasCapture ? 'What a strike' : 'Pure precision');
   } else {
     sndGood();
-    const t = document.createElement('div'); t.className = 'good-text';
-    t.textContent = wasCapture ? 'NICE TAKE' : 'GOOD MOVE';
-    document.body.appendChild(t);
-    if (sq) sparkle(sq, 7, 'green');
-    setTimeout(() => { t.remove(); }, 1000);
+    const labels = wasCapture ? ['NICE TAKE','CLEAN HIT','SNATCHED'] : ['GOOD MOVE','SOLID','SHARP','SLICK'];
+    const label = labels[(Math.random()*labels.length)|0];
+    const v = ['sparkle','ring','plus','sparks'][(Math.random()*4)|0];
+    if (v === 'sparkle' && sq) sparkle(sq, 9, 'green');
+    else if (v === 'ring') fx2Ring(c.x, c.y, c.cell, '52,211,153');
+    else if (v === 'plus') fx2FloatText(c.x, c.y, '+' + (delta > 0 ? delta.toFixed(1) : '0.0'), '#34D399');
+    else bfx2Sparks(c.x, c.y, '#34D399', 14);
+    fx2GoodText(label);
   }
 }
 
@@ -934,15 +937,22 @@ function sparkle(sq, count, color) {
 
 // Randomly selects one of five blunder effects on the blundered square.
 function blunderEffect(toSquare) {
-  const fx = ['shatter', 'melt', 'blood', 'tilt', 'implode'];
+  const fx = ['shatter','melt','blood','tilt','implode','glitch','quake','lightning','ink','freeze','vortex','static'];
   const pick = fx[Math.floor(Math.random() * fx.length)];
   console.log('[BLUNDER FX]', pick);
   switch (pick) {
-    case 'shatter': return explodePiece(toSquare);
-    case 'melt':    return fxMelt(toSquare);
-    case 'blood':   return fxBlood(toSquare);
-    case 'tilt':    return fxTilt(toSquare);
-    case 'implode': return fxImplode(toSquare);
+    case 'shatter':   return explodePiece(toSquare);
+    case 'melt':      return fxMelt(toSquare);
+    case 'blood':     return fxBlood(toSquare);
+    case 'tilt':      return fxTilt(toSquare);
+    case 'implode':   return fxImplode(toSquare);
+    case 'glitch':    return fxGlitch(toSquare);
+    case 'quake':     return fxQuake(toSquare);
+    case 'lightning': return fxLightning(toSquare);
+    case 'ink':       return fxInk(toSquare);
+    case 'freeze':    return fxFreeze(toSquare);
+    case 'vortex':    return fxVortex(toSquare);
+    case 'static':    return fxStatic(toSquare);
   }
 }
 
@@ -1682,8 +1692,8 @@ function onGameOver(msg) {
   const setCls = (id, cls) => { const el = document.getElementById(id); if (el) el.className = cls; };
 
   const iWon = msg.winner === S.myColor;
-  if (iWon) { sndWin(); S.streak++; flashB('fg'); flashOv('rgba(45,198,83,.2)'); }
-  else { sndBlunder(); S.streak = 0; flashB('fr'); flashOv('rgba(230,57,70,.25)'); }
+  if (iWon) { sndWin(); S.streak++; flashB('fg'); flashOv('rgba(45,198,83,.2)'); victoryFx(); }
+  else { sndBlunder(); S.streak = 0; flashB('fr'); flashOv('rgba(230,57,70,.25)'); defeatFx(); }
 
   const myRatings = msg.ratings && msg.ratings[S.myColor] ? msg.ratings[S.myColor] : {old: S.user?.rating||1200, new: S.user?.rating||1200, delta: 0};
 
@@ -2382,3 +2392,275 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
     } catch(e) {}
   }
 })();
+
+// ══════════════════════════════════════════
+// FX2 — EXPANDED EFFECT LIBRARY
+// Big randomized sets for: good moves, blunders, victory, defeat.
+// Self-contained: injects its own CSS, uses one shared particle canvas.
+// ══════════════════════════════════════════
+let _fx2StyleDone = false;
+function fx2Style() {
+  if (_fx2StyleDone) return;
+  _fx2StyleDone = true;
+  const css = `
+.fx2-flash{position:fixed;inset:0;z-index:1392;pointer-events:none;opacity:0;animation:fx2FlashA .65s ease-out forwards}
+@keyframes fx2FlashA{0%{opacity:var(--fa,.5)}100%{opacity:0}}
+.fx2-wash{position:fixed;inset:0;z-index:1391;pointer-events:none;opacity:0;animation:fx2WashA 2.2s ease-out forwards}
+@keyframes fx2WashA{0%{opacity:0}18%{opacity:1}100%{opacity:0}}
+.fx2-vignette{position:fixed;inset:0;z-index:1391;pointer-events:none;animation:fx2VigA 2.2s ease-out forwards}
+@keyframes fx2VigA{0%{box-shadow:inset 0 0 120px 20px rgba(var(--vc),0)}30%{box-shadow:inset 0 0 220px 80px rgba(var(--vc),.55)}100%{box-shadow:inset 0 0 120px 20px rgba(var(--vc),0)}}
+.fx2-bigtitle{position:fixed;left:50%;top:40%;z-index:1396;pointer-events:none;font-family:Antonio,sans-serif;font-weight:700;font-size:84px;letter-spacing:4px;text-shadow:0 0 40px currentColor,0 4px 24px rgba(0,0,0,.6);text-align:center;transform:translate(-50%,-50%);animation:fx2BTin .5s cubic-bezier(.2,1.4,.4,1) forwards}
+.fx2-bigtitle.out{animation:fx2BTout .5s ease-in forwards}
+@keyframes fx2BTin{0%{opacity:0;transform:translate(-50%,-50%) scale(.4)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes fx2BTout{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.3)}}
+.fx2-rays{position:fixed;width:300px;height:300px;z-index:1393;pointer-events:none;background:repeating-conic-gradient(var(--bc) 0deg 5deg, transparent 5deg 30deg);-webkit-mask:radial-gradient(circle,#000 0%,transparent 70%);mask:radial-gradient(circle,#000 0%,transparent 70%);opacity:0;animation:fx2RaysA 1.2s ease-out forwards}
+@keyframes fx2RaysA{0%{opacity:0;transform:rotate(0) scale(.4)}30%{opacity:.85}100%{opacity:0;transform:rotate(55deg) scale(1.3)}}
+.fx2-beams{position:fixed;inset:-50%;z-index:1389;pointer-events:none;background:repeating-conic-gradient(rgba(245,197,24,.16) 0deg 8deg, transparent 8deg 60deg);-webkit-mask:radial-gradient(circle at center,#000 10%,transparent 62%);mask:radial-gradient(circle at center,#000 10%,transparent 62%);animation:fx2BeamsA 3s linear forwards}
+@keyframes fx2BeamsA{0%{opacity:0;transform:rotate(0)}15%{opacity:1}100%{opacity:0;transform:rotate(90deg)}}
+.fx2-ring{position:fixed;z-index:1393;pointer-events:none;border-radius:50%;border:3px solid rgba(var(--rc),.9);transform:translate(-50%,-50%);animation:fx2RingA .7s ease-out forwards}
+@keyframes fx2RingA{0%{width:var(--rs);height:var(--rs);opacity:1}100%{width:calc(var(--rs)*5);height:calc(var(--rs)*5);opacity:0}}
+.fx2-float{position:fixed;z-index:1396;pointer-events:none;font-family:Antonio,sans-serif;font-weight:700;font-size:34px;transform:translate(-50%,-50%);text-shadow:0 2px 12px rgba(0,0,0,.5);animation:fx2FloatA 1s ease-out forwards}
+@keyframes fx2FloatA{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}25%{opacity:1;transform:translate(-50%,-90%) scale(1.1)}100%{opacity:0;transform:translate(-50%,-230%) scale(1)}}
+.fx2-glitch{animation:fx2GlitchA .7s steps(2) both}
+@keyframes fx2GlitchA{0%{filter:none;transform:translate(0)}20%{filter:drop-shadow(3px 0 #E11D2E) drop-shadow(-3px 0 #0EA5E9);transform:translate(-3px,1px)}40%{transform:translate(4px,-2px)}55%{filter:drop-shadow(-4px 0 #E11D2E) drop-shadow(4px 0 #0EA5E9);transform:translate(-2px,2px)}75%{transform:translate(2px,-1px)}100%{filter:none;transform:translate(0)}}
+.fx2-quake{animation:fx2QuakeA .8s cubic-bezier(.36,.07,.19,.97)}
+@keyframes fx2QuakeA{0%,100%{transform:translate(0,0)}10%{transform:translate(-8px,4px)}20%{transform:translate(7px,-5px)}30%{transform:translate(-9px,-3px)}40%{transform:translate(8px,5px)}50%{transform:translate(-6px,3px)}60%{transform:translate(6px,-4px)}70%{transform:translate(-4px,2px)}80%{transform:translate(4px,-2px)}90%{transform:translate(-2px,1px)}}
+.fx2-bolt{position:fixed;inset:0;z-index:1395;pointer-events:none;animation:fx2BoltA .42s ease-out forwards}
+@keyframes fx2BoltA{0%{opacity:0}10%{opacity:1}30%{opacity:.3}45%{opacity:1}100%{opacity:0}}
+.fx2-ink{position:absolute;inset:8%;background:radial-gradient(circle,#070707 58%,rgba(7,7,7,.55) 100%);border-radius:52% 48% 47% 53%/49% 51% 46% 54%;transform:scale(0);z-index:57;pointer-events:none;animation:fx2InkA 1.6s ease-out forwards}
+.fx2-ink.spread{inset:16%;animation:fx2InkA 1.5s ease-out both}
+@keyframes fx2InkA{0%{transform:scale(0);opacity:.95}55%{transform:scale(1.1);opacity:.95}100%{transform:scale(1.05);opacity:0}}
+.fx2-ice{position:absolute;inset:0;z-index:57;pointer-events:none;background:linear-gradient(135deg,rgba(200,240,255,.75),rgba(140,200,255,.45));box-shadow:inset 0 0 12px rgba(255,255,255,.9);opacity:0;animation:fx2IceA .7s ease-out forwards}
+.fx2-ice.crack{background:linear-gradient(135deg,rgba(200,240,255,.4),rgba(140,200,255,.2));animation:fx2IceCrack .7s ease-in forwards}
+@keyframes fx2IceA{0%{opacity:0;transform:scale(.4)}100%{opacity:1;transform:scale(1)}}
+@keyframes fx2IceCrack{0%{opacity:1;transform:scale(1) rotate(0)}60%{transform:scale(1.05) rotate(2deg)}100%{opacity:0;transform:scale(1.2) rotate(-3deg)}}
+.fx2-vortex{animation:fx2VortexA 1.1s cubic-bezier(.5,0,.9,.5) forwards}
+@keyframes fx2VortexA{0%{transform:rotate(0) scale(1);opacity:1}100%{transform:rotate(900deg) scale(0);opacity:0}}
+.fx2-swirl{position:absolute;inset:-20%;z-index:56;pointer-events:none;border-radius:50%;background:conic-gradient(from 0deg,transparent,rgba(225,29,46,.5),transparent,rgba(14,17,22,.6),transparent);animation:fx2SwirlA 1.1s linear forwards}
+@keyframes fx2SwirlA{0%{transform:rotate(0) scale(.3);opacity:0}30%{opacity:1}100%{transform:rotate(720deg) scale(1.2);opacity:0}}
+.fx2-static{position:absolute;inset:0;z-index:58;pointer-events:none;background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.18) 0 1px,transparent 1px 3px),repeating-linear-gradient(90deg,rgba(0,0,0,.15) 0 1px,transparent 1px 2px);mix-blend-mode:overlay;animation:fx2StaticA .65s steps(6) forwards}
+@keyframes fx2StaticA{0%{opacity:.9;transform:translateY(0)}50%{opacity:.7;transform:translateY(-3px)}100%{opacity:0;transform:translateY(2px)}}
+.fx2-fullcrack{position:fixed;inset:0;z-index:1394;pointer-events:none;opacity:0;animation:fx2CrackA 1.4s ease-out forwards}
+.fx2-fullcrack svg{width:100%;height:100%}
+@keyframes fx2CrackA{0%{opacity:0}12%{opacity:.95}100%{opacity:0}}
+.fx2-gray{animation:fx2GrayA 2s ease-out forwards}
+@keyframes fx2GrayA{0%{filter:none}25%{filter:grayscale(1) brightness(.7)}100%{filter:none}}
+`;
+  const s = document.createElement('style');
+  s.id = 'fx2-style';
+  s.textContent = css;
+  document.head.appendChild(s);
+}
+
+// ── shared particle engine ──────────────────
+const BFX2 = { canvas:null, ctx:null, raf:null, parts:[] };
+function bfx2Canvas() {
+  if (!BFX2.canvas) {
+    const c = document.createElement('canvas');
+    c.id = 'bigfx-canvas';
+    c.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:1390';
+    document.body.appendChild(c);
+    BFX2.canvas = c; BFX2.ctx = c.getContext('2d');
+  }
+  const c = BFX2.canvas;
+  if (c.width !== window.innerWidth || c.height !== window.innerHeight) { c.width = window.innerWidth; c.height = window.innerHeight; }
+  return c;
+}
+function bfx2Tick() {
+  const ctx = BFX2.ctx; if (!ctx) { BFX2.raf = null; return; }
+  const W = BFX2.canvas.width, H = BFX2.canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const ps = BFX2.parts;
+  for (let i = ps.length-1; i >= 0; i--) {
+    const p = ps[i];
+    p.vx *= (p.drag || 0.99); p.vy += (p.grav || 0);
+    p.x += p.vx; p.y += p.vy;
+    p.rot = (p.rot || 0) + (p.spin || 0);
+    p.life -= p.decay;
+    if (p.life <= 0 || p.y > H + 60) { ps.splice(i,1); continue; }
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    if (p.shape === 'rect') { const w = p.size, h = p.size * 0.5; ctx.fillRect(-w/2, -h/2, w, h); }
+    else if (p.shape === 'star') { ctx.font = '700 ' + p.size + 'px Antonio,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(p.glyph || '\u2605', 0, 0); }
+    else if (p.shape === 'coin') { ctx.scale(Math.abs(Math.cos(p.rot)) * 0.9 + 0.1, 1); ctx.beginPath(); ctx.arc(0,0,p.size/2,0,Math.PI*2); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(120,80,0,.4)'; ctx.stroke(); }
+    else { ctx.beginPath(); ctx.arc(0,0,p.size/2,0,Math.PI*2); ctx.fill(); }
+    ctx.restore();
+  }
+  if (ps.length) BFX2.raf = requestAnimationFrame(bfx2Tick);
+  else { BFX2.raf = null; ctx.clearRect(0,0,W,H); }
+}
+function bfx2Start() { bfx2Canvas(); if (!BFX2.raf) BFX2.raf = requestAnimationFrame(bfx2Tick); }
+
+// ── emitters ────────────────────────────────
+const FX2_CONFETTI = ['#FF7A1A','#F5C518','#34D399','#E11D2E','#F5F1EA','#0EA5E9'];
+function bfx2Confetti(durMs) {
+  const W = bfx2Canvas().width, end = performance.now() + durMs;
+  (function spawn() {
+    if (performance.now() > end) return;
+    for (let i = 0; i < 6; i++) BFX2.parts.push({ x: Math.random()*W, y: -20, vx: (Math.random()-0.5)*3, vy: 2+Math.random()*3, grav: 0.06, drag: 0.995, rot: Math.random()*6, spin: (Math.random()-0.5)*0.3, size: 8+Math.random()*8, color: FX2_CONFETTI[(Math.random()*FX2_CONFETTI.length)|0], shape: 'rect', life: 1, decay: 0.004 });
+    bfx2Start(); setTimeout(spawn, 60);
+  })();
+}
+function bfx2Burst(x, y, color, n) {
+  for (let i = 0; i < n; i++) { const a = Math.random()*Math.PI*2, sp = 2+Math.random()*6; BFX2.parts.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp, grav: 0.04, drag: 0.96, size: 4+Math.random()*4, color, shape: 'circle', life: 1, decay: 0.012, rot: 0, spin: 0 }); }
+  bfx2Start();
+}
+function bfx2Fireworks(times, gold) {
+  const W = bfx2Canvas().width, H = BFX2.canvas.height; let k = 0;
+  (function go() {
+    if (k++ >= times) return;
+    const cols = gold ? ['#F5C518','#FF7A1A','#FFFFFF'] : ['#F5C518','#34D399','#0EA5E9','#E11D2E','#FF7A1A'];
+    bfx2Burst(W*(0.2+Math.random()*0.6), H*(0.16+Math.random()*0.34), cols[(Math.random()*cols.length)|0], 38);
+    setTimeout(go, 260+Math.random()*260);
+  })();
+}
+function bfx2Coins(durMs) {
+  const W = bfx2Canvas().width, end = performance.now() + durMs;
+  (function spawn() {
+    if (performance.now() > end) return;
+    for (let i = 0; i < 3; i++) BFX2.parts.push({ x: Math.random()*W, y: -20, vx: (Math.random()-0.5)*1.5, vy: 3+Math.random()*3, grav: 0.07, drag: 0.997, rot: Math.random()*6, spin: 0.25+Math.random()*0.2, size: 16+Math.random()*8, color: '#F5C518', shape: 'coin', life: 1, decay: 0.004 });
+    bfx2Start(); setTimeout(spawn, 70);
+  })();
+}
+function bfx2StarBurst(x, y, n) {
+  for (let i = 0; i < n; i++) { const a = Math.random()*Math.PI*2, sp = 1+Math.random()*5; BFX2.parts.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp-2, grav: 0.03, drag: 0.97, rot: Math.random()*6, spin: (Math.random()-0.5)*0.3, size: 14+Math.random()*14, color: '#F5C518', shape: 'star', glyph: '\u2605', life: 1, decay: 0.01 }); }
+  bfx2Start();
+}
+function bfx2Embers(durMs, color) {
+  const W = bfx2Canvas().width, H = BFX2.canvas.height, end = performance.now() + durMs;
+  (function spawn() {
+    if (performance.now() > end) return;
+    for (let i = 0; i < 4; i++) BFX2.parts.push({ x: Math.random()*W, y: H+10, vx: (Math.random()-0.5)*1, vy: -(1+Math.random()*2.5), grav: -0.01, drag: 0.99, size: 3+Math.random()*4, color: color || '#FF7A1A', shape: 'circle', life: 1, decay: 0.008, rot: 0, spin: 0 });
+    bfx2Start(); setTimeout(spawn, 55);
+  })();
+}
+function bfx2Ash(durMs) {
+  const W = bfx2Canvas().width, end = performance.now() + durMs;
+  (function spawn() {
+    if (performance.now() > end) return;
+    for (let i = 0; i < 4; i++) BFX2.parts.push({ x: Math.random()*W, y: -10, vx: (Math.random()-0.5)*1.2, vy: 0.6+Math.random()*1.4, grav: 0.01, drag: 0.99, size: 2+Math.random()*4, color: Math.random()<0.5 ? '#6B7280' : '#3D4A5C', shape: 'circle', life: 1, decay: 0.005, rot: 0, spin: 0 });
+    bfx2Start(); setTimeout(spawn, 60);
+  })();
+}
+function bfx2Sparks(x, y, color, n) {
+  for (let i = 0; i < n; i++) { const a = Math.random()*Math.PI*2, sp = 2+Math.random()*7; BFX2.parts.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp-1.5, grav: 0.05, drag: 0.95, size: 3+Math.random()*4, color, shape: 'circle', life: 1, decay: 0.02, rot: 0, spin: 0 }); }
+  bfx2Start();
+}
+
+// ── DOM / CSS helpers ───────────────────────
+function fx2SqCenter(square) {
+  const board = document.getElementById('board');
+  const el = square && document.querySelector('#board [data-sq="' + square + '"]');
+  if (el) { const r = el.getBoundingClientRect(); return { x: r.left+r.width/2, y: r.top+r.height/2, cell: r.width }; }
+  if (board) { const r = board.getBoundingClientRect(); return { x: r.left+r.width/2, y: r.top+r.height/2, cell: r.width/8 }; }
+  return { x: window.innerWidth/2, y: window.innerHeight/2, cell: 48 };
+}
+function fx2BigTitle(text, color, win) {
+  fx2Style();
+  const t = document.createElement('div');
+  t.className = 'fx2-bigtitle ' + (win ? 'win' : 'loss');
+  t.style.color = color; t.textContent = text;
+  document.body.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 520); }, 1900);
+}
+function fx2Flash(rgb, a) { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-flash'; d.style.background = 'rgb(' + rgb + ')'; d.style.setProperty('--fa', a || 0.5); document.body.appendChild(d); setTimeout(() => d.remove(), 660); }
+function fx2Wash(rgba) { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-wash'; d.style.background = rgba; document.body.appendChild(d); setTimeout(() => d.remove(), 2200); }
+function fx2Vignette(rgb) { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-vignette'; d.style.setProperty('--vc', rgb); document.body.appendChild(d); setTimeout(() => d.remove(), 2200); }
+function fx2Rays(x, y, color) { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-rays'; d.style.left = (x-150)+'px'; d.style.top = (y-150)+'px'; d.style.setProperty('--bc', color); document.body.appendChild(d); setTimeout(() => d.remove(), 1200); }
+function fx2Beams() { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-beams'; document.body.appendChild(d); setTimeout(() => d.remove(), 3000); }
+function fx2Ring(x, y, cell, rgb) { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-ring'; d.style.left = x+'px'; d.style.top = y+'px'; d.style.setProperty('--rc', rgb); d.style.setProperty('--rs', (cell||48)+'px'); document.body.appendChild(d); setTimeout(() => d.remove(), 700); }
+function fx2FloatText(x, y, text, color) { fx2Style(); const d = document.createElement('div'); d.className = 'fx2-float'; d.style.left = x+'px'; d.style.top = y+'px'; d.style.color = color; d.textContent = text; document.body.appendChild(d); setTimeout(() => d.remove(), 1000); }
+function fx2GoodText(label) { const t = document.createElement('div'); t.className = 'good-text'; t.textContent = label; document.body.appendChild(t); setTimeout(() => t.remove(), 1000); }
+function fx2BrilliantText(label, sub) { const t = document.createElement('div'); t.className = 'brilliant-text'; t.textContent = label; document.body.appendChild(t); const s = document.createElement('div'); s.className = 'brilliant-sub'; s.textContent = sub; document.body.appendChild(s); setTimeout(() => { t.remove(); s.remove(); }, 1600); }
+function fx2FullCrack() {
+  fx2Style();
+  const g = document.getElementById('s-game');
+  if (g) { g.classList.add('shatter-shake'); setTimeout(() => g.classList.remove('shatter-shake'), 600); }
+  const ov = document.createElement('div'); ov.className = 'fx2-fullcrack';
+  const cx = 20+Math.random()*60, cy = 20+Math.random()*40; let paths = ''; const N = 12;
+  for (let i = 0; i < N; i++) {
+    const ang = (i/N)*Math.PI*2 + Math.random()*0.5; let px = cx, py = cy, d = 'M'+px+','+py; let len = 8+Math.random()*8;
+    for (let s = 0; s < 5; s++) { const j = (Math.random()-0.5)*10; px += Math.cos(ang)*len + Math.cos(ang+1.57)*j; py += Math.sin(ang)*len + Math.sin(ang+1.57)*j; d += ' L'+px.toFixed(1)+','+py.toFixed(1); len *= 1.15; }
+    paths += '<path d="'+d+'"/>';
+  }
+  ov.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><g stroke="#fff" stroke-width="0.4" fill="none" opacity="0.85">'+paths+'</g></svg>';
+  document.body.appendChild(ov); setTimeout(() => ov.remove(), 1400);
+}
+
+// ── NEW BLUNDER EFFECTS (square-localized) ───
+function fxGlitch(toSquare) { fx2Style(); const b = document.getElementById('board'); if (b) { b.classList.add('fx2-glitch'); setTimeout(() => b.classList.remove('fx2-glitch'), 700); } const c = fx2SqCenter(toSquare); bfx2Sparks(c.x, c.y, '#E11D2E', 16); }
+function fxQuake(toSquare) { fx2Style(); const g = document.getElementById('s-game'); if (g) { g.classList.add('fx2-quake'); setTimeout(() => g.classList.remove('fx2-quake'), 800); } const c = fx2SqCenter(toSquare); for (let i = 0; i < 22; i++) BFX2.parts.push({ x: c.x+(Math.random()-0.5)*c.cell, y: c.y, vx: (Math.random()-0.5)*2, vy: 1+Math.random()*3, grav: 0.12, drag: 0.99, size: 2+Math.random()*3, color: '#6B7280', shape: 'circle', life: 1, decay: 0.01, rot: 0, spin: 0 }); bfx2Start(); }
+function fxLightning(toSquare) {
+  fx2Style(); const c = fx2SqCenter(toSquare);
+  const ov = document.createElement('div'); ov.className = 'fx2-bolt';
+  let x = c.x, y = 0, d = 'M'+x+',0';
+  while (y < c.y) { y += 20+Math.random()*30; x += (Math.random()-0.5)*40; d += ' L'+x.toFixed(0)+','+y.toFixed(0); }
+  d += ' L'+c.x.toFixed(0)+','+c.y.toFixed(0);
+  ov.innerHTML = '<svg width="100%" height="100%"><path d="'+d+'" stroke="#E11D2E" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 6px #E11D2E)"/></svg>';
+  document.body.appendChild(ov); fx2Flash('225,29,46', 0.32); bfx2Sparks(c.x, c.y, '#E11D2E', 18); setTimeout(() => ov.remove(), 430);
+}
+function fxInk(toSquare) {
+  fx2Style(); const sq = fxSquareEl(toSquare); if (!sq) return;
+  const ink = document.createElement('div'); ink.className = 'fx2-ink'; sq.appendChild(ink);
+  const file = toSquare.charCodeAt(0), rank = parseInt(toSquare[1]);
+  [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1]].forEach(([df,dr], i) => {
+    const nf = String.fromCharCode(file+df), nr = rank+dr;
+    if (nf < 'a' || nf > 'h' || nr < 1 || nr > 8) return;
+    const n = fxSquareEl(nf+nr); if (!n) return;
+    const sp = document.createElement('div'); sp.className = 'fx2-ink spread'; sp.style.animationDelay = (0.1+i*0.06)+'s'; n.appendChild(sp);
+    setTimeout(() => sp.remove(), 1600);
+  });
+  setTimeout(() => ink.remove(), 1600);
+}
+function fxFreeze(toSquare) {
+  fx2Style(); const sq = fxSquareEl(toSquare); if (!sq) return;
+  const ice = document.createElement('div'); ice.className = 'fx2-ice'; sq.appendChild(ice);
+  const pc = sq.querySelector('img.piece'); if (pc) pc.style.filter = 'brightness(1.4) saturate(.3)';
+  setTimeout(() => ice.classList.add('crack'), 700);
+  setTimeout(() => { ice.remove(); if (pc) pc.style.filter = ''; }, 1400);
+}
+function fxVortex(toSquare) {
+  fx2Style(); const sq = fxSquareEl(toSquare); if (!sq) return;
+  const pc = sq.querySelector('img.piece'); if (pc) pc.classList.add('fx2-vortex');
+  const sw = document.createElement('div'); sw.className = 'fx2-swirl'; sq.appendChild(sw);
+  setTimeout(() => { sw.remove(); if (pc) pc.classList.remove('fx2-vortex'); }, 1100);
+}
+function fxStatic(toSquare) {
+  fx2Style(); const b = document.getElementById('board'); if (!b) return;
+  const st = document.createElement('div'); st.className = 'fx2-static'; b.appendChild(st);
+  const c = fx2SqCenter(toSquare); bfx2Sparks(c.x, c.y, '#F5F1EA', 14);
+  setTimeout(() => st.remove(), 660);
+}
+
+// ── VICTORY / DEFEAT DISPATCHERS ────────────
+function victoryFx() {
+  fx2Style();
+  const pool = ['confetti','fireworks','coins','stars','beams','embers'];
+  const pick = pool[(Math.random()*pool.length)|0];
+  const titles = ['VICTORY','FLAWLESS','DOMINANT','CHAMPION','MASTERCLASS','SURVIVOR'];
+  const title = titles[(Math.random()*titles.length)|0];
+  const c = fx2SqCenter(null);
+  if (pick === 'confetti') bfx2Confetti(3500);
+  else if (pick === 'fireworks') bfx2Fireworks(6, true);
+  else if (pick === 'coins') bfx2Coins(2800);
+  else if (pick === 'stars') { bfx2StarBurst(c.x, c.y, 40); fx2Flash('245,197,24', 0.4); }
+  else if (pick === 'beams') { fx2Beams(); bfx2Confetti(2500); }
+  else { bfx2Embers(3000, '#F5C518'); }
+  fx2BigTitle(title, '#F5C518', true);
+}
+function defeatFx() {
+  fx2Style();
+  const pool = ['redwash','ash','crack','gray','smoke','vignette'];
+  const pick = pool[(Math.random()*pool.length)|0];
+  const titles = ['DEFEATED','CRUSHED','ELIMINATED','GAME OVER','WASTED','FINISHED'];
+  const title = titles[(Math.random()*titles.length)|0];
+  if (pick === 'redwash') fx2Wash('rgba(225,29,46,0.30)');
+  else if (pick === 'ash') bfx2Ash(2600);
+  else if (pick === 'crack') fx2FullCrack();
+  else if (pick === 'gray') { const g = document.getElementById('s-game'); if (g) { g.classList.add('fx2-gray'); setTimeout(() => g.classList.remove('fx2-gray'), 2000); } }
+  else if (pick === 'smoke') { bfx2Embers(2200, '#3D4A5C'); fx2Wash('rgba(14,17,22,0.35)'); }
+  else fx2Vignette('225,29,46');
+  fx2BigTitle(title, '#E11D2E', false);
+}
