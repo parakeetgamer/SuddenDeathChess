@@ -32,6 +32,7 @@ function handleConnection(ws) {
       case 'draw':       return doDraw(ws);
       case 'resign':     return doResign(ws);
       case 'ping':       return send(ws, { type: 'pong' });
+      case 'ready':      return doReady(ws);
     }
   });
 
@@ -127,7 +128,7 @@ function startHumanGame(wsW, white, wsB, black) {
     black: { username: black.username, rating: black.rating } };
   send(wsW, Object.assign({}, info, { color: 'white' }));
   send(wsB, Object.assign({}, info, { color: 'black' }));
-  setTimeout(() => { if (!session.over) startTurnTimer(session, 'white'); }, 2000);
+  setTimeout(() => { if (!session.over && !session.timer && session.moves.length === 0) startTurnTimer(session, 'white'); }, 6000);
   console.log('[GAME] human:', white.username, 'vs', black.username);
 }
 
@@ -165,8 +166,17 @@ function startBotGame(ws) {
     black: { username: bot.name, rating: bot.rating },
     color: 'white' };
   send(ws, info);
-  setTimeout(() => { if (!session.over) startTurnTimer(session, 'white'); }, 2000);
+  setTimeout(() => { if (!session.over && !session.timer && session.moves.length === 0) startTurnTimer(session, 'white'); }, 6000);
   console.log('[GAME] bot:', human.username, 'vs', bot.name);
+}
+
+function doReady(ws) {
+  const session = findSession(ws);
+  if (!session || session.over) return;
+  if (session.moves.length > 0) return;          // already in progress
+  if (colorOf(session, ws) !== 'white') return;  // only white's readiness starts white's clock
+  if (session.timer) return;                     // already running
+  startTurnTimer(session, 'white');
 }
 
 function doMove(ws, msg) {

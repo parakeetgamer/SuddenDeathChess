@@ -634,6 +634,7 @@ function startPreGameCountdown(iGoFirst) {
     if (val < 0) {
       clearInterval(tick);
       overlay.style.display = 'none';
+      wsSend({ type: 'ready' });   // tell the server we can move now -> it starts the clock
       startLocalTimer();
     }
   }, 1000);
@@ -1856,6 +1857,8 @@ function recDrawFrame() {
   if (phase !== REC._prevPhase) {
     const o = originOf(S.lastTo);
     const tier = fxTier(typeof S.lastMoveDelta === 'number' ? S.lastMoveDelta : 0, phase === 'death');
+    if (phase === 'safe') { REC._streak = (REC._streak||0) + 1; REC._streakPop = now; }
+    if (phase === 'death') { REC._streak = 0; }
     if (phase === 'safe' || phase === 'death') {
       REC._fx = { type:phase, start:now, x:o[0], y:o[1], rgb:tier.flash, label:tier.label };
       recBurst(o[0], o[1], tier.part, tier.n);
@@ -1873,7 +1876,11 @@ function recDrawFrame() {
     const amp = 14 * (1 - fxT/0.45);
     shx = (Math.random()-0.5) * amp; shy = (Math.random()-0.5) * amp;
   }
-  ctx.save(); ctx.translate(shx, shy);
+  let punch = 1;
+  if (fx && fxT < 0.3) punch = 1 + 0.05 * (1 - fxT/0.3);
+  ctx.save();
+  ctx.translate(W/2, H/2); ctx.scale(punch, punch); ctx.translate(-W/2, -H/2);
+  ctx.translate(shx, shy);
   ctx.textBaseline = 'middle';
 
   const camH = 280;
@@ -1883,6 +1890,19 @@ function recDrawFrame() {
     ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,camH); ctx.clip();
     ctx.drawImage(v, (W-dw)/2, (camH-dh)/2, dw, dh); ctx.restore();
   } else { ctx.fillStyle = '#191D24'; ctx.fillRect(0,0,W,camH); }
+
+  if ((REC._streak||0) > 0) {
+    const sp = REC._streakPop ? Math.max(0, 1 - (now - REC._streakPop)/350) : 0;
+    const bs = 1 + 0.3*sp;
+    ctx.save(); ctx.translate(18, 34); ctx.scale(bs, bs);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = '700 30px Antonio, sans-serif';
+    ctx.fillStyle = '#FF7A1A';
+    ctx.fillText('\uD83D\uDD25 ' + REC._streak, 0, 0);
+    ctx.font = '700 11px JetBrains Mono, monospace'; ctx.fillStyle = '#F5F1EA';
+    ctx.fillText('SURVIVED', 2, 24);
+    ctx.restore(); ctx.textBaseline = 'middle';
+  }
 
   ctx.fillStyle = '#14171C'; ctx.fillRect(0, camH, W, 66);
   ctx.textAlign = 'left'; ctx.font = '700 21px Antonio, sans-serif';
@@ -1979,6 +1999,11 @@ function recDrawFrame() {
   ctx.fillStyle = '#FF7A1A'; ctx.font = '700 20px JetBrains Mono, monospace';
   ctx.fillText('\u25B6 suddendeathchess.up.railway.app', W/2, H-26);
 
+  const eg = ctx.createRadialGradient(W/2, H/2, H*0.30, W/2, H/2, H*0.62);
+  eg.addColorStop(0, 'rgba(255,122,26,0)');
+  eg.addColorStop(1, 'rgba(255,122,26,' + (0.05 + 0.06*pulse).toFixed(3) + ')');
+  ctx.fillStyle = eg; ctx.fillRect(0,0,W,H);
+
   ctx.restore();
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   if (REC.active) REC.raf = requestAnimationFrame(recDrawFrame);
@@ -2024,6 +2049,7 @@ async function startRecording(btn) {
   REC.canvas = document.createElement('canvas');
   REC.canvas.width = 540; REC.canvas.height = 960;
   REC.ctx = REC.canvas.getContext('2d');
+  REC._streak = 0; REC._prevPhase = null; REC._fx = null;
   REC.canvas.id = 'rec-preview';
   REC.canvas.style.cssText = 'position:fixed;top:64px;right:10px;width:108px;height:192px;z-index:1450;border:2px solid #FF7A1A;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.55);background:#000';
   document.body.appendChild(REC.canvas);
