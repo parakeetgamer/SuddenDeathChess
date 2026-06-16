@@ -8,8 +8,10 @@
 // ══════════════════════════════════════════
 let actx;
 function ga(){ if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)(); return actx; }
+let sfxBusNode;
+function sfxBus(){ const c=ga(); if(!sfxBusNode){ sfxBusNode=c.createGain(); sfxBusNode.connect(c.destination); } return sfxBusNode; }
 function tone(freq,type,dur,vol=.15,atk=.01,dec=.08){
-  try{const c=ga(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);
+  try{const c=ga(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(sfxBus());
   o.type=type;o.frequency.value=freq;const n=c.currentTime;
   g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(vol,n+atk);
   g.gain.exponentialRampToValueAtTime(.001,n+atk+dec+dur);o.start(n);o.stop(n+atk+dec+dur+.05);}catch(e){}
@@ -2006,7 +2008,7 @@ async function startRecording(btn) {
     toast('Recording is not supported on this browser.'); return;
   }
   try {
-    REC.userStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:640, height:480 }, audio:true });
+    REC.userStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:640, height:480 }, audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:false } });
   } catch(e) { toast('Camera/mic permission denied.'); return; }
 
   REC.video = document.createElement('video');
@@ -2024,16 +2026,22 @@ async function startRecording(btn) {
   try { REC.stream = REC.canvas.captureStream(30); }
   catch(e) { toast('Recording blocked by the browser.'); stopRecordingCleanup(); return; }
   try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    REC.audioCtx = new AC();
-    const aSrc = REC.audioCtx.createMediaStreamSource(REC.userStream);
-    const comp = REC.audioCtx.createDynamicsCompressor();
-    comp.threshold.value = -30; comp.knee.value = 22; comp.ratio.value = 9;
-    comp.attack.value = 0.003; comp.release.value = 0.18;
-    const aGain = REC.audioCtx.createGain(); aGain.gain.value = 2.4;
-    const aDest = REC.audioCtx.createMediaStreamDestination();
-    aSrc.connect(comp); comp.connect(aGain); aGain.connect(aDest);
-    aDest.stream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
+    const ac = ga();                       // share the game's audio context so we capture SFX
+    if (ac.state === 'suspended') ac.resume();
+    const recDest = ac.createMediaStreamDestination();
+    try { sfxBus().connect(recDest); } catch (e) {}   // game sound effects into the clip
+    const aSrc = ac.createMediaStreamSource(REC.userStream);
+    const comp = ac.createDynamicsCompressor();
+    comp.threshold.value = -28; comp.knee.value = 20; comp.ratio.value = 6;
+    comp.attack.value = 0.003; comp.release.value = 0.2;
+    const makeup = ac.createGain(); makeup.gain.value = 1.5;   // gentler than before
+    const gate = ac.createGain(); gate.gain.value = 0;          // noise gate: starts closed
+    const analyser = ac.createAnalyser(); analyser.fftSize = 512;
+    aSrc.connect(comp); comp.connect(analyser); comp.connect(makeup); makeup.connect(gate); gate.connect(recDest);
+    REC._audioNodes = { aSrc, comp, makeup, gate, analyser, recDest, ac };
+    REC._gateOpen = false;
+    recGateTick();
+    recDest.stream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
   } catch (e) {
     REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
   }
@@ -2072,13 +2080,13 @@ function stopRecordingCleanup() {
   REC.active = false;
   if (REC.raf) cancelAnimationFrame(REC.raf);
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
-  if (REC.audioCtx) { try { REC.audioCtx.close(); } catch(e){} REC.audioCtx = null; }
+  recTeardownAudio();
 }
 
 function finishRecording() {
   const blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
-  if (REC.audioCtx) { try { REC.audioCtx.close(); } catch(e){} REC.audioCtx = null; }
+  recTeardownAudio();
   const url = URL.createObjectURL(blob);
   const fname = 'sudden-death-' + Date.now() + '.' + REC.ext;
   const file = window.File ? new File([blob], fname, { type: blob.type }) : null;
@@ -2107,6 +2115,27 @@ function showRecordResult(url, file, fname) {
       try { await navigator.share({ files:[file], title:'Sudden Death Chess', text:'My Sudden Death Chess clip' }); } catch(e) {}
     };
   }
+}
+
+function recGateTick() {
+  const n = REC._audioNodes;
+  if (!n || !REC.active) return;
+  const buf = new Uint8Array(n.analyser.fftSize);
+  n.analyser.getByteTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) { const v = (buf[i]-128)/128; sum += v*v; }
+  const rms = Math.sqrt(sum / buf.length);
+  REC._gateOpen = REC._gateOpen ? (rms > 0.018) : (rms > 0.035);   // hysteresis
+  n.gate.gain.setTargetAtTime(REC._gateOpen ? 1 : 0, n.ac.currentTime, REC._gateOpen ? 0.01 : 0.12);
+  REC._gateRaf = requestAnimationFrame(recGateTick);
+}
+
+function recTeardownAudio() {
+  if (REC._gateRaf) { cancelAnimationFrame(REC._gateRaf); REC._gateRaf = null; }
+  const n = REC._audioNodes; REC._audioNodes = null;
+  if (!n) return;
+  try { if (sfxBusNode && n.recDest) sfxBusNode.disconnect(n.recDest); } catch (e) {}
+  ['aSrc','comp','makeup','gate','analyser'].forEach(k => { try { if (n[k]) n[k].disconnect(); } catch (e) {} });
 }
 
 function ensureRecordButton() {
