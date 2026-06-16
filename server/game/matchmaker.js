@@ -34,6 +34,7 @@ function handleConnection(ws) {
       case 'ping':       return send(ws, { type: 'pong' });
       case 'ready':      return doReady(ws);
       case 'committed':  return doCommitted(ws);
+      case 'guest':      return doGuestAuth(ws);
     }
   });
 
@@ -71,8 +72,26 @@ function doAuth(ws, msg) {
   }
 }
 
+let guestSeq = 0;
+function doGuestAuth(ws) {
+  guestSeq++;
+  const name = 'Guest' + (1000 + Math.floor(Math.random() * 9000));
+  ws.player = {
+    id: -100 - guestSeq,          // negative sentinel: never collides with a real users row
+    username: name,
+    rating: 1000, peak_rating: 1000,
+    games: 0, no_ads: 0, guest: true
+  };
+  send(ws, { type: 'authed', user: {
+    id: ws.player.id, username: name, rating: 1000, peak_rating: 1000,
+    wins: 0, losses: 0, games: 0, no_ads: false, guest: true
+  }});
+  console.log('[GUEST] joined:', name);
+}
+
 function doFindMatch(ws) {
   if (!ws.player) return send(ws, { type: 'error', message: 'Not authenticated.' });
+  if (ws.player.guest) { startBotGame(ws); return; }   // guests skip matchmaking -> instant bot game
   if (queue.find(e => e.ws === ws)) return;
   queue.push({ ws, player: ws.player });
   send(ws, { type: 'searching' });
@@ -156,7 +175,7 @@ function startBotGame(ws) {
     send(ws, { type: 'move', color: 'black', from: data.from, to: data.to, san: data.san,
       evalBefore: 0, evalAfter: data.evalAfter || 0, delta: 0, isBlunder: false });
     session.turn = 'white';
-    startTurnTimer(session, 'white');
+    armReadyFallback(session, 'white');     // human's clock starts when their client signals 'ready' (after judging the bot's move)
   };
 
   activeGames.set(id, session);
@@ -174,10 +193,10 @@ function startBotGame(ws) {
 function doReady(ws) {
   const session = findSession(ws);
   if (!session || session.over) return;
-  if (session.moves.length > 0) return;          // already in progress
-  if (colorOf(session, ws) !== 'white') return;  // only white's readiness starts white's clock
+  const color = colorOf(session, ws);
+  if (!color || session.turn !== color) return;  // only the side to move starts its own clock
   if (session.timer) return;                     // already running
-  startTurnTimer(session, 'white');
+  startTurnTimer(session, color);
 }
 
 function doCommitted(ws) {
@@ -214,8 +233,20 @@ function doMove(ws, msg) {
 
   const next = color === 'white' ? 'black' : 'white';
   session.turn = next;
-  if (session.isBot && next === 'black') session.bot.scheduleMove();
-  startTurnTimer(session, next);   // run the clock for every turn, including the bot's
+  if (session.isBot && next === 'black') {
+    session.bot.scheduleMove();
+    startTurnTimer(session, next);          // bot has no eval delay -- start its display clock now
+  } else {
+    armReadyFallback(session, next);        // human: their client starts the clock via 'ready' after judging the opponent's move
+  }
+}
+
+function armReadyFallback(session, color) {
+  // Safety net: if the client's 'ready' is lost, start the clock anyway after a
+  // grace period (longer than the ~1.5-2s client eval) so a turn can't hang.
+  setTimeout(() => {
+    if (!session.over && !session.timer && session.turn === color) startTurnTimer(session, color);
+  }, 3500);
 }
 
 function startTurnTimer(session, color) {

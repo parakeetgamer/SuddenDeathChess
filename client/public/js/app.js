@@ -220,6 +220,8 @@ function connectWS() {
     // Authenticate immediately
     if (S.token) {
       wsSend({ type: 'auth', token: S.token });
+    } else if (S.guestPending) {
+      wsSend({ type: 'guest' });
     }
     // Keepalive ping every 25s (clear any previous one so reconnects don't stack)
     if (S._pingInterval) clearInterval(S._pingInterval);
@@ -339,6 +341,35 @@ async function doAuth() {
     errEl.textContent = 'Connection error. Try again.';
   }
 }
+
+// ── INSTANT GUEST PLAY ───────────────────
+function playAsGuest() {
+  S.guestPending = true;
+  S.pendingFindMatch = true;
+  if (S.ws && S.ws.readyState === WebSocket.OPEN) wsSend({ type: 'guest' });
+  // else: connectWS onopen fires the guest handshake once the socket opens
+  toast('Finding you a game\u2026');
+}
+
+function injectGuestButton() {
+  const card = document.querySelector('#s-login .login-card');
+  if (!card || document.getElementById('btn-guest')) return;
+  const label = document.getElementById('lm-label');
+  if (!label) return;
+  const b = document.createElement('button');
+  b.id = 'btn-guest';
+  b.textContent = '\u25B6 PLAY NOW \u2014 NO SIGNUP';
+  b.style.cssText = 'width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:16px;font-family:Antonio,sans-serif;font-size:22px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px;box-shadow:0 0 28px rgba(255,122,26,.35);margin-bottom:4px';
+  b.onmouseenter = () => { b.style.filter = 'brightness(1.07)'; };
+  b.onmouseleave = () => { b.style.filter = 'none'; };
+  b.onclick = playAsGuest;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;align-items:center;gap:10px;margin:16px 0 4px;color:#52525B;font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:2px';
+  div.innerHTML = '<span style=\"flex:1;height:1px;background:#2A2F37\"></span>OR SIGN IN TO SAVE PROGRESS<span style=\"flex:1;height:1px;background:#2A2F37\"></span>';
+  card.insertBefore(b, label);
+  card.insertBefore(div, label);
+}
+injectGuestButton();
 
 function onAuthed(user) {
   S.user = user;
@@ -1438,6 +1469,7 @@ async function onOpponentMove(msg) {
   // Normal: glow from my POV, hand the clock back to me.
   boardGlow(myStanding > 1.5 ? 'good' : myStanding < -1.5 ? 'bad' : 'idle', 1100);
   updateTurnUI();
+  wsSend({ type: 'ready' });   // done judging the opponent's move -> server starts my clock now (full 5s)
   startLocalTimer();
 
   // Cache my pre-move baseline for my upcoming move.
@@ -1708,6 +1740,7 @@ function onGameOver(msg) {
   const noAdsEl = document.getElementById('no-ads-unlock');
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
   injectBestMoveCTA(iWon);
+  injectGuestSaveCTA();
 
   loadLeaderboard();
   // Delay modal so dramatic blunder reaction plays first
@@ -1740,6 +1773,29 @@ function injectBestMoveCTA(iWon) {
   b.onmouseenter = () => { b.style.filter = 'brightness(1.08)'; };
   b.onmouseleave = () => { b.style.filter = 'none'; };
   b.onclick = showPremium;
+  modal.insertBefore(b, btns);
+}
+
+function injectGuestSaveCTA() {
+  const old = document.getElementById('btn-guest-save');
+  if (old) old.remove();
+  if (!S.user || !S.user.guest) return;     // only guests see this
+  const modal = document.querySelector('#result-modal .modal');
+  const btns = document.querySelector('#result-modal .modal-btns');
+  if (!modal || !btns) return;
+  const b = document.createElement('button');
+  b.id = 'btn-guest-save';
+  b.textContent = '\uD83D\uDCBE Save your rating & streak \u2014 free account';
+  b.style.cssText = 'width:100%;background:linear-gradient(135deg,#34D399,#0EA5E9);color:#0E1116;border:none;padding:15px;margin-bottom:10px;font-family:Antonio,sans-serif;font-size:19px;font-weight:700;letter-spacing:1px;cursor:pointer;border-radius:4px;box-shadow:0 0 22px rgba(52,211,153,.3)';
+  b.onmouseenter = () => { b.style.filter = 'brightness(1.07)'; };
+  b.onmouseleave = () => { b.style.filter = 'none'; };
+  b.onclick = () => {
+    document.getElementById('result-modal').classList.remove('show');
+    if (!signupMode) document.getElementById('btn-toggle').click();   // flip into Create Account mode
+    show('s-login');
+    const u = document.getElementById('inp-user'); if (u) u.focus();
+    toast('Create a free account to keep your progress');
+  };
   modal.insertBefore(b, btns);
 }
 
