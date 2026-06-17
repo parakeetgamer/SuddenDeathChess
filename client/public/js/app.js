@@ -2680,7 +2680,7 @@ function ensureRecordButton() {
   const btn = document.createElement('button');
   btn.id = 'rec-btn';
   btn.textContent = '🔴 Create Content';
-  btn.style.cssText = 'position:fixed;top:70px;right:14px;z-index:1500;background:rgba(225,29,46,0.15);border:1px solid rgba(225,29,46,0.5);color:#E11D2E;padding:9px 14px;border-radius:30px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:1px;cursor:pointer;backdrop-filter:blur(6px)';
+  btn.style.cssText = 'position:fixed;bottom:18px;right:16px;z-index:1500;background:rgba(225,29,46,0.15);border:1px solid rgba(225,29,46,0.5);color:#E11D2E;padding:9px 14px;border-radius:30px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:1px;cursor:pointer;backdrop-filter:blur(6px)';
   btn.onclick = () => { if (REC.active) stopRecording(btn); else startRecording(btn); };
   screen.appendChild(btn);
 }
