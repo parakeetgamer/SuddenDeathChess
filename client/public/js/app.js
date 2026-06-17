@@ -1900,27 +1900,9 @@ function onGameOver(msg) {
   setCls('m-title', 'modal-title ' + (iWon?'win':'loss'));
   setEl('m-reason', msg.reason);
 
-  // Add detailed blunder explanation if available
+  // "Why you lost" blunder-explanation panel removed.
   const explainEl = document.getElementById('m-blunder-explain');
   if (explainEl) explainEl.remove();
-  if (msg.blunderDetail) {
-    const d = msg.blunderDetail;
-    let html = '<div style="margin-top:16px;padding:14px 18px;background:rgba(225,29,46,0.08);border-left:3px solid #E11D2E;border-radius:4px;text-align:left;">';
-    html += '<div style="font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:3px;color:#E11D2E;text-transform:uppercase;margin-bottom:8px;">Why you lost</div>';
-    html += '<div style="font-size:16px;color:#F5F1EA;margin-bottom:4px;">You lost your <strong style="color:#FF7A1A;">' + d.lostPiece + '</strong> (' + d.lostValue + ' pts)</div>';
-    html += '<div style="font-size:13px;color:#A1A1AA;">Captured by the ' + d.attackerPiece + ' on ' + d.attackerFrom + '</div>';
-    if (!d.defended) {
-      html += '<div style="font-size:13px;color:#A1A1AA;margin-top:6px;">Your piece was undefended.</div>';
-    } else {
-      html += '<div style="font-size:13px;color:#A1A1AA;margin-top:6px;">You could recapture for ' + d.recaptureValue + ' pts, but still lose ' + d.netLoss + ' material.</div>';
-    }
-    html += '</div>';
-    const wrapper = document.createElement('div');
-    wrapper.id = 'm-blunder-explain';
-    wrapper.innerHTML = html;
-    const reasonEl = document.getElementById('m-reason');
-    if (reasonEl && reasonEl.parentNode) reasonEl.parentNode.insertBefore(wrapper, reasonEl.nextSibling);
-  }
   setEl('m-r-old', myRatings.old);
   setEl('m-r-new', myRatings.new);
   setEl('m-r-delta', (myRatings.delta >= 0 ? '+' : '') + myRatings.delta);
