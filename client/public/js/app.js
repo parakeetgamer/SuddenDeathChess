@@ -1742,12 +1742,24 @@ function stopLocalTimer() {
 }
 
 function updateTimerUI() {
+  const v = S.timerVal;
+  const max = 5;
+  const frac = Math.max(0, Math.min(1, v / max));
+  const reset = v >= max;   // new turn -> snap, don't rewind the sweep
+
   const el = document.getElementById('timer-num');
   const fill = document.getElementById('timer-fill');
-  el.textContent = S.timerVal;
-  fill.style.width = (S.timerVal/5*100)+'%';
-  el.className = 'timer-big ' + (S.timerVal>3?'ok':S.timerVal>1?'warn':'crit');
-  fill.style.background = S.timerVal>3?'var(--green)':S.timerVal>1?'var(--yellow)':'var(--red)';
+  if (el) { el.textContent = v; el.className = 'timer-big ' + (v>3?'ok':v>1?'warn':'crit'); }
+  if (fill) { fill.style.width = (frac*100)+'%'; fill.style.background = v>3?'var(--green)':v>1?'var(--yellow)':'var(--red)'; }
+
+  const sw = document.getElementById('stopwatch');
+  const num = document.getElementById('sw-num');
+  const prog = document.getElementById('sw-prog');
+  const hand = document.getElementById('sw-hand');
+  if (num) num.textContent = v;
+  if (prog) { prog.style.transition = reset ? 'none' : ''; prog.style.strokeDashoffset = (289.03 * (1 - frac)).toFixed(2); }
+  if (hand) { hand.style.transition = reset ? 'none' : ''; hand.style.transform = 'rotate(' + ((1 - frac) * 360) + 'deg)'; }
+  if (sw) { sw.classList.remove('ok','warn','crit'); sw.classList.add(v>3?'ok':v>1?'warn':'crit'); }
 }
 
 // ══════════════════════════════════════════

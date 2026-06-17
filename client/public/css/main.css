@@ -378,6 +378,45 @@ body {
 .timer-track { height:3px; background:var(--border); margin-top:8px; overflow:hidden; }
 .timer-fill { height:100%; background:var(--ember); transition:width 1s linear, background .3s; }
 
+/* ── STRESS STOPWATCH (right of board) ── */
+.stopwatch { display:flex; flex-direction:column; align-items:center; gap:8px;
+  padding:16px 12px 14px; margin:12px 12px 4px;
+  background:var(--surface2); border:1px solid var(--border); border-radius:12px; }
+.sw-face { position:relative; width:148px; height:148px; }
+.sw-svg { width:100%; height:100%; overflow:visible; display:block; }
+.sw-crown { fill:var(--text-muted); }
+.sw-stem  { stroke:var(--text-muted); stroke-width:4; }
+.sw-body  { fill:var(--surface); stroke:var(--border); stroke-width:2; }
+.sw-track-ring { fill:none; stroke:var(--border); stroke-width:7; opacity:.45; }
+.sw-prog  { fill:none; stroke:var(--green); stroke-width:7; stroke-linecap:round;
+  stroke-dasharray:289.03; stroke-dashoffset:0;
+  transition:stroke-dashoffset 1s linear, stroke .3s; }
+.sw-hand  { stroke:var(--text); stroke-width:3; stroke-linecap:round;
+  transform-box:view-box; transform-origin:60px 66px; transform:rotate(0deg);
+  transition:transform 1s linear, stroke .3s; }
+.sw-pin   { fill:var(--text); }
+.sw-num   { position:absolute; left:0; right:0; top:55%; transform:translateY(-50%);
+  text-align:center; font-family:'Antonio',sans-serif; font-weight:700; font-size:46px;
+  letter-spacing:1px; color:var(--text); line-height:1; }
+.sw-label { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:3px;
+  text-transform:uppercase; color:var(--text-muted); }
+
+.stopwatch.warn .sw-prog { stroke:var(--yellow); }
+.stopwatch.warn .sw-num  { color:var(--yellow); }
+.stopwatch.warn .sw-hand { stroke:var(--yellow); }
+.stopwatch.warn .sw-face { animation:swPulse 1s ease-in-out infinite; }
+
+.stopwatch.crit { border-color:var(--red); animation:swGlow .5s ease-in-out infinite; }
+.stopwatch.crit .sw-prog { stroke:var(--red); }
+.stopwatch.crit .sw-num  { color:var(--red); animation:swNumPulse .5s ease-in-out infinite; }
+.stopwatch.crit .sw-hand { stroke:var(--red); }
+.stopwatch.crit .sw-face { animation:swShake .12s linear infinite; }
+
+@keyframes swShake { 0%{transform:translate(0,0)} 25%{transform:translate(-2px,1px)} 50%{transform:translate(2px,-1px)} 75%{transform:translate(-1px,-1px)} 100%{transform:translate(1px,1px)} }
+@keyframes swPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.04)} }
+@keyframes swNumPulse { 0%,100%{transform:translateY(-50%) scale(1)} 50%{transform:translateY(-50%) scale(1.18)} }
+@keyframes swGlow { 0%,100%{box-shadow:0 0 14px rgba(225,29,46,.3)} 50%{box-shadow:0 0 30px rgba(225,29,46,.7)} }
+
 /* Eval */
 .eval-outer {
   height:110px; background:var(--obsidian); position:relative;
