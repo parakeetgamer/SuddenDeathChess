@@ -14,6 +14,48 @@ const ARCHETYPES = [
 ];
 
 const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+// ── Look-ahead engine: negamax + alpha-beta over material & center control.
+// A fully-completing 2-ply search (3-ply in cheap endgames) is what makes the
+// bots strong; the shown rating only tunes how tightly they stick to its best move.
+let _searchNodes = 0;
+const SEARCH_NODE_BUDGET = 4000;   // safety net; normal searches finish well under this
+
+function evalWhite(chess) {
+  const b = chess.board();
+  let s = 0;
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const p = b[r][f]; if (!p) continue;
+    let v = (PIECE_VALUE[p.type] || 0) * 100;
+    if (p.type !== 'k' && p.type !== 'r') { const dc = Math.abs(3.5 - f) + Math.abs(3.5 - r); v += (7 - dc) * 3; }
+    s += (p.color === 'w') ? v : -v;
+  }
+  return s;
+}
+
+function leafEval(chess) { const e = evalWhite(chess); return chess.turn() === 'w' ? e : -e; }
+
+function negamax(chess, depth, alpha, beta) {
+  if (depth <= 0 || _searchNodes > SEARCH_NODE_BUDGET) return leafEval(chess);
+  _searchNodes++;
+  const moves = chess.moves({ verbose: true });
+  if (moves.length === 0) {
+    let mate = false;
+    try { mate = chess.isCheckmate ? chess.isCheckmate() : (chess.in_checkmate ? chess.in_checkmate() : false); } catch (e) {}
+    return mate ? (-99000 - depth) : 0;
+  }
+  moves.sort((a, b) => (b.captured ? PIECE_VALUE[b.captured] : 0) - (a.captured ? PIECE_VALUE[a.captured] : 0));
+  let best = -Infinity;
+  for (const m of moves) {
+    chess.move({ from: m.from, to: m.to, promotion: 'q' });
+    const v = -negamax(chess, depth - 1, -beta, -alpha);
+    chess.undo();
+    if (v > best) best = v;
+    if (best > alpha) alpha = best;
+    if (alpha >= beta) break;
+  }
+  return best;
+}
 const BOT_NAMES = ARCHETYPES.flatMap(a => a.names); // kept for compatibility
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -34,8 +76,9 @@ class BotPlayer {
     const bandMid = (arch.ratingMin + arch.ratingMax) / 2;
     const raw = bandMid * 0.6 + hr * 0.4 + (Math.floor(Math.random() * 200) - 100);
     this.rating = Math.max(arch.ratingMin, Math.min(arch.ratingMax, Math.round(raw)));
-    this.strength = this.rating + 200;        // bot plays 200 Elo above the rating it shows
-    this.blunderChance = arch.blunder * 0.6;  // tougher: blunders less than its archetype baseline
+    this.strength = this.rating + 500;        // bot plays ~500 Elo above the rating it shows
+    this.blunderChance = arch.blunder * 0.35; // tougher: rarely gifts a move
+    this.searchDepth = 2;                      // 2-ply + alpha-beta (cheap endgames go deeper)
     this.capWeight = arch.capWeight; // how much it favors captures/aggression
     this.active = true;
     console.log('[BOT] created', this.name, '(' + arch.label + ')',
@@ -147,8 +190,20 @@ class BotPlayer {
   }
 
   chooseMove(moves) {
-    const scored = this.scoreMoves(moves);
-    const topN = Math.max(1, Math.round((2200 - this.strength) / 400));
+    const sim = new Chess(this.chess.fen());
+    let depth = this.searchDepth || 2;
+    if (moves.length <= 10) depth += 1;   // few replies -> deeper is cheap
+    _searchNodes = 0;
+    const scored = moves.map(m => {
+      sim.move({ from: m.from, to: m.to, promotion: 'q' });
+      let val = -negamax(sim, depth - 1, -Infinity, Infinity);
+      sim.undo();
+      if (m.captured) val += (PIECE_VALUE[m.captured] || 0) * 2 * (this.capWeight || 1);
+      val += Math.random() * 4;   // tiny tie-break noise for variety
+      return { move: m, val };
+    });
+    scored.sort((a, b) => b.val - a.val);
+    const topN = Math.max(1, Math.min(5, Math.round((2200 - this.strength) / 300)));
     const top = scored.slice(0, Math.min(topN, scored.length));
     return top[Math.floor(Math.random() * top.length)].move;
   }
