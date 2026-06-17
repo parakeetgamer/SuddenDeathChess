@@ -130,7 +130,7 @@ body {
   letter-spacing:2px; line-height:1;
 }
 .brand-text .ember { color:var(--ember); }
-.brand-text .death { color:var(--crimson); }
+.brand-text .death { color:var(--death); }
 
 .brand-sub {
   font-size:10px; letter-spacing:5px; text-transform:uppercase;
@@ -197,7 +197,7 @@ body {
   font-family:'Antonio',sans-serif; font-size:22px; font-weight:700; letter-spacing:2px;
 }
 .nav-wordmark .ember { color:var(--ember); }
-.nav-wordmark .death { color:var(--crimson); }
+.nav-wordmark .death { color:var(--death); }
 
 .nav-right { display:flex; align-items:center; gap:14px; }
 .nav-user {
@@ -242,7 +242,7 @@ body {
   margin-bottom:8px;
 }
 .lobby-title .ember { color:var(--ember); }
-.lobby-title .death { color:var(--crimson); }
+.lobby-title .death { color:var(--death); }
 .lobby-tagline {
   font-size:11px; letter-spacing:6px; text-transform:uppercase;
   color:var(--text-muted); font-family:'JetBrains Mono',monospace;
@@ -332,7 +332,7 @@ body {
 .game-nav-knight { font-size:20px; }
 .game-nav-wordmark { font-family:'Antonio',sans-serif; font-size:20px; font-weight:700; letter-spacing:2px; }
 .game-nav-wordmark .ember { color:var(--ember); }
-.game-nav-wordmark .death { color:var(--crimson); }
+.game-nav-wordmark .death { color:var(--death); }
 
 .game-status-pill {
   flex:1; text-align:center;
@@ -424,9 +424,9 @@ body {
 @keyframes swGlow { 0%,100%{box-shadow:0 0 14px rgba(225,29,46,.3)} 50%{box-shadow:0 0 30px rgba(225,29,46,.7)} }
 
 /* ── BOARD-ATTACHED TIME HUD (unavoidable + adrenaline) ── */
-.timehud { display:flex; flex-direction:column; align-items:center; gap:7px; width:min(64vw,580px); margin-bottom:14px; }
-.th-num { font-family:'Antonio',sans-serif; font-weight:700; font-size:50px; line-height:1; color:var(--green); transition:color .3s; font-variant-numeric:tabular-nums; }
-.th-bar { width:100%; height:16px; background:var(--surface2); border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+.timehud { position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:6; display:flex; flex-direction:row; align-items:center; gap:14px; width:min(58vw,500px); padding:7px 16px; background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.25); }
+.th-num { font-family:'Antonio',sans-serif; font-weight:700; font-size:40px; line-height:1; min-width:46px; text-align:center; color:var(--green); transition:color .3s; font-variant-numeric:tabular-nums; }
+.th-bar { flex:1; height:14px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .th-fill { height:100%; width:100%; background:var(--green); border-radius:9px; transition:width 1s linear, background .3s; }
 .timehud.warn .th-num { color:var(--yellow); }
 .timehud.warn .th-fill { background:var(--yellow); }
@@ -468,7 +468,7 @@ body {
 
 /* Center board */
 .g-center {
-  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  flex:1; display:flex; align-items:center; justify-content:center;
   position:relative; overflow:hidden;
   background:radial-gradient(ellipse 70% 70% at 50% 50%, #131820 0%, var(--obsidian) 100%);
 }
