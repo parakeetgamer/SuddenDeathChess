@@ -202,6 +202,172 @@ function sfBestMove(fen, movetime) {
   });
 }
 
+// ── Teachable blunder analysis: top-3 engine moves + plain-English reasons ──
+function sfTopMoves(fen, n, movetime) {
+  n = n || 3;
+  return new Promise((resolve) => {
+    let worker;
+    try { worker = new Worker('/js/stockfish.js'); } catch (e) { resolve([]); return; }
+    let gotUciok = false, done = false;
+    const lines = {};
+    const ht = setTimeout(() => { fin(); }, (movetime || 1200) + 2800);
+    const fin = () => {
+      if (done) return; done = true; clearTimeout(ht); clearInterval(poll);
+      try { worker.terminate(); } catch (e) {}
+      const arr = Object.keys(lines).map(k => lines[k]).sort((a, b) => a.idx - b.idx);
+      resolve(arr.slice(0, n));
+    };
+    worker.onmessage = (event) => {
+      const msg = typeof event === 'string' ? event : event.data;
+      if (!msg || typeof msg !== 'string') return;
+      if (!gotUciok) {
+        if (msg.startsWith('uciok')) {
+          gotUciok = true;
+          worker.postMessage('setoption name MultiPV value ' + n);
+          worker.postMessage('position fen ' + fen);
+          worker.postMessage('go movetime ' + (movetime || 1200));
+        }
+        return;
+      }
+      if (msg.startsWith('info') && msg.indexOf(' multipv ') >= 0 && msg.indexOf(' pv ') >= 0) {
+        const mp = msg.match(/ multipv (\d+)/);
+        const pv = msg.match(/ pv (\w+)/);
+        if (mp && pv && pv[1].length >= 4) {
+          const idx = parseInt(mp[1]);
+          const uci = pv[1];
+          const mate = msg.match(/score mate (-?\d+)/);
+          const cp = msg.match(/score cp (-?\d+)/);
+          lines[idx] = { idx: idx, from: uci.slice(0, 2), to: uci.slice(2, 4),
+            cp: cp ? parseInt(cp[1]) : null, mate: mate ? parseInt(mate[1]) : null };
+        }
+        return;
+      }
+      if (msg.startsWith('bestmove')) fin();
+    };
+    worker.onerror = () => fin();
+    let tries = 0;
+    var poll = setInterval(() => { if (gotUciok || done || tries > 25) { clearInterval(poll); return; } tries++; worker.postMessage('uci'); }, 250);
+  });
+}
+
+function describeMove(fen, mv, rank) {
+  const names = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+  let san = mv.from + mv.to, piece = 'piece', cap = false, check = false, knight = false;
+  try {
+    const c = new Chess(fen);
+    const pc = c.get(mv.from);
+    if (pc) { piece = names[pc.type] || 'piece'; knight = pc.type === 'n'; }
+    const target = c.get(mv.to);
+    cap = !!(target && pc && target.color !== pc.color);
+    const res = c.move({ from: mv.from, to: mv.to, promotion: 'q' });
+    if (res) { san = res.san; check = /[+#]/.test(res.san); }
+  } catch (e) {}
+  const central = ['d4', 'e4', 'd5', 'e5', 'c4', 'f4', 'c5', 'f5'].indexOf(mv.to) >= 0;
+  const lead = ['Strongest', 'Also strong', 'Solid'][rank] || 'Option';
+  let why;
+  if (typeof mv.mate === 'number') why = 'forces checkmate \u2014 the cleanest possible answer';
+  else if (cap) why = 'wins material by capturing on ' + mv.to + ', keeping your piece safe';
+  else if (check) why = 'checks the king, seizing the initiative instead of hanging a piece';
+  else if (knight || piece === 'bishop') why = 'develops your ' + piece + ' to safety while keeping pressure';
+  else if (central) why = 'takes the center and keeps every piece defended';
+  else why = 'keeps the position solid \u2014 nothing left hanging';
+  let evalTxt = '';
+  if (typeof mv.mate === 'number') evalTxt = '';
+  else if (typeof mv.cp === 'number') { const p = mv.cp / 100; evalTxt = ' (' + (p >= 0 ? '+' : '') + p.toFixed(1) + ')'; }
+  return { san: san, lead: lead, knight: knight, why: why.charAt(0).toUpperCase() + why.slice(1) + evalTxt + '.' };
+}
+
+function clearTeachArrows() { const c = document.getElementById('teach-arrows'); if (c) c.remove(); }
+
+function drawTeachArrow(fromSq, toSq, isKnight, color, rank) {
+  const board = document.getElementById('board');
+  if (!board) return;
+  const rect = board.getBoundingClientRect();
+  const cell = rect.width / 8;
+  const flipped = S.myColor === 'black';
+  const center = (sq) => {
+    let file = sq.charCodeAt(0) - 97, rnk = parseInt(sq[1]) - 1;
+    let col = flipped ? 7 - file : file, row = flipped ? rnk : 7 - rnk;
+    return { x: col * cell + cell / 2, y: row * cell + cell / 2 };
+  };
+  const a = center(fromSq), b = center(toSq);
+  let pathD;
+  if (isKnight) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const bend = Math.abs(dx) > Math.abs(dy) ? { x: b.x, y: a.y } : { x: a.x, y: b.y };
+    pathD = 'M ' + a.x + ' ' + a.y + ' L ' + bend.x + ' ' + bend.y + ' L ' + b.x + ' ' + b.y;
+  } else {
+    pathD = 'M ' + a.x + ' ' + a.y + ' L ' + b.x + ' ' + b.y;
+  }
+  let c = document.getElementById('teach-arrows');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = 'teach-arrows';
+    c.style.cssText = 'position:absolute;left:0;top:0;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
+    board.parentElement.appendChild(c);
+  }
+  const mid = 'tah' + rank;
+  c.insertAdjacentHTML('beforeend',
+    '<svg width="' + rect.width + '" height="' + rect.height + '" style="position:absolute;left:0;top:0;overflow:visible">' +
+    '<defs><marker id="' + mid + '" markerWidth="5" markerHeight="5" refX="3" refY="2.5" orient="auto">' +
+    '<path d="M0,0 L5,2.5 L0,5 Z" fill="' + color + '"/></marker></defs>' +
+    '<path d="' + pathD + '" fill="none" stroke="' + color + '" stroke-width="' + (cell * 0.13).toFixed(1) +
+    '" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#' + mid + ')" opacity="0.95"/>' +
+    '<circle cx="' + a.x + '" cy="' + a.y + '" r="' + (cell * 0.17).toFixed(1) + '" fill="' + color + '" stroke="#fff" stroke-width="2"/>' +
+    '<text x="' + a.x + '" y="' + (a.y + cell * 0.075).toFixed(1) + '" text-anchor="middle" font-family="Antonio,sans-serif" font-size="' + (cell * 0.26).toFixed(1) + '" font-weight="700" fill="#fff">' + rank + '</text>' +
+    '</svg>');
+}
+
+function teachPanelStyle() {
+  if (document.getElementById('teach-style')) return;
+  const st = document.createElement('style'); st.id = 'teach-style';
+  st.textContent =
+    "#teach-panel{position:fixed;right:20px;top:50%;transform:translateY(-50%);width:300px;max-width:42vw;z-index:1200;background:#FFFCF5;color:#2A2118;border-radius:16px;padding:16px 18px;box-shadow:0 16px 44px rgba(0,0,0,.5);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;animation:tpIn .4s cubic-bezier(.18,.9,.32,1.4);}" +
+    ".tp-head{font-family:Antonio,sans-serif;font-weight:700;font-size:17px;letter-spacing:.5px;color:#E8722A;margin-bottom:10px;}" +
+    ".tp-body{font-size:14px;line-height:1.5;}.tp-body strong{color:#C0392B;}" +
+    ".tp-move{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid #efe7d8;}.tp-move:first-of-type{border-top:none;}" +
+    ".tp-badge{flex:none;width:22px;height:22px;border-radius:50%;color:#fff;font-family:Antonio,sans-serif;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;margin-top:1px;}" +
+    ".tp-san{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;}" +
+    ".tp-lead{font-size:11px;color:#9a8f7d;font-family:Antonio,sans-serif;letter-spacing:.5px;margin-left:4px;}" +
+    ".tp-why{font-size:12.5px;line-height:1.4;color:#4a4136;margin-top:2px;}" +
+    "@keyframes tpIn{from{opacity:0;transform:translateY(-50%) translateX(22px);}to{opacity:1;transform:translateY(-50%) translateX(0);}}" +
+    "@media(max-width:860px){#teach-panel{right:50%;top:auto;bottom:14px;transform:translateX(50%);width:min(92vw,360px);}}";
+  document.head.appendChild(st);
+}
+
+function hideTeachPanel() { const p = document.getElementById('teach-panel'); if (p) p.remove(); }
+
+function showWhyPanel(d, square) {
+  teachPanelStyle(); hideTeachPanel();
+  let body;
+  if (d && d.positional) {
+    body = 'That move handed over about <strong>' + d.netLoss + '</strong> pawns of advantage \u2014 exactly the kind of slip the engine pounces on.';
+  } else if (d) {
+    body = 'Your <strong>' + d.lostPiece + '</strong> on <strong>' + square + '</strong> was left hanging \u2014 the ' + d.attackerPiece + ' from ' + d.attackerFrom + ' could just take it.';
+    if (d.defended) body += ' Even recapturing, you come out <strong>' + d.netLoss + '</strong> behind.';
+    else body += ' And nothing was guarding it.';
+  } else {
+    body = 'That move gave up too much material.';
+  }
+  const p = document.createElement('div');
+  p.id = 'teach-panel'; p.className = 'tp-why';
+  p.innerHTML = '<div class="tp-head">\uD83D\uDCA1 Why that lost</div><div class="tp-body">' + body + '</div>';
+  document.body.appendChild(p);
+}
+
+function showBetterPanel(items) {
+  teachPanelStyle(); hideTeachPanel();
+  const rows = items.map((it) =>
+    '<div class="tp-move"><span class="tp-badge" style="background:' + it.color + '">' + it.rank + '</span>' +
+    '<div><div><span class="tp-san">' + it.san + '</span><span class="tp-lead">' + it.lead + '</span></div>' +
+    '<div class="tp-why">' + it.why + '</div></div></div>').join('');
+  const p = document.createElement('div');
+  p.id = 'teach-panel'; p.className = 'tp-better';
+  p.innerHTML = '<div class="tp-head">\u2705 What would\u2019ve worked</div>' + rows;
+  document.body.appendChild(p);
+}
+
+
 // ══════════════════════════════════════════
 // WEBSOCKET
 // ══════════════════════════════════════════
@@ -1307,61 +1473,47 @@ function drawBestArrow(fromSq, toSq, isKnight) {
   return ov;
 }
 
-async function blunderReplay(fenBefore, badFrom, badTo) {
-  const board = document.getElementById('board');
-  // 1. undo my move so the board shows the pre-blunder position
-  try { S.chess.undo(); } catch(e) {}
+async function blunderReplay(fenBefore, badFrom, badTo, detail) {
+  // ---- Phase 1: WHY it lost. Board stays on the blundered position so you
+  //      can see the hung piece; explanation sits off to the side. (15s) ----
+  const hung = document.querySelector('#board [data-sq="' + badTo + '"]');
+  if (hung) hung.classList.add('teach-hung');
+  let threat = null;
+  if (detail && detail.attackerFrom && detail.attackerFrom !== '?') {
+    threat = document.querySelector('#board [data-sq="' + detail.attackerFrom + '"]');
+    if (threat) threat.classList.add('teach-threat');
+  }
+  showWhyPanel(detail, badTo);
+  await new Promise(r => setTimeout(r, 15000));
+  if (hung) hung.classList.remove('teach-hung');
+  if (threat) threat.classList.remove('teach-threat');
+  hideTeachPanel();
+
+  // ---- Phase 2: rewind to the pre-blunder position, then show the 3 best
+  //      moves you could have played instead, each with its own arrow. ----
+  try { S.chess.undo(); } catch (e) {}
   S.lastFrom = null; S.lastTo = null;
   renderBoard();
 
-  // 2. label overlay
-  let lbl = document.getElementById('replay-label');
-  if (!lbl) {
-    lbl = document.createElement('div');
-    lbl.id = 'replay-label';
-    document.body.appendChild(lbl);
+  let top = [];
+  try { top = await sfTopMoves(fenBefore, 3); } catch (e) { top = []; }
+  if (top && top.length) {
+    const colors = ['#34D399', '#3B82F6', '#F59E0B'];
+    const items = top.map((mv, i) => {
+      const info = describeMove(fenBefore, mv, i);
+      drawTeachArrow(mv.from, mv.to, info.knight, colors[i], i + 1);
+      return { rank: i + 1, color: colors[i], san: info.san, lead: info.lead, why: info.why };
+    });
+    showBetterPanel(items);
+    await new Promise(r => setTimeout(r, 9000));
   }
-  lbl.textContent = 'Analyzing\u2026';
-  lbl.className = 'replay-label show';
 
-  // 3. ask the engine for the best move from that position
-  const best = (S.user && S.user.is_premium) ? await sfBestMove(fenBefore) : null; // premium unlock
-
-  if (best) {
-    const fEl = document.querySelector('#board [data-sq="' + best.from + '"]');
-    const tEl = document.querySelector('#board [data-sq="' + best.to + '"]');
-    if (fEl) fEl.classList.add('best-from');
-    if (tEl) tEl.classList.add('best-to');
-    // is it a knight move? from-square piece type, or L-shaped geometry.
-    let isKnight = false;
-    try {
-      const pc = S.chess.get(best.from);
-      isKnight = pc && pc.type === 'n';
-    } catch(e) {}
-    if (!isKnight) {
-      const df = Math.abs(best.from.charCodeAt(0) - best.to.charCodeAt(0));
-      const dr = Math.abs(parseInt(best.from[1]) - parseInt(best.to[1]));
-      isKnight = (df === 1 && dr === 2) || (df === 2 && dr === 1);
-    }
-    const arrow = drawBestArrow(best.from, best.to, isKnight);
-    lbl.textContent = 'Best move: ' + best.from + ' \u2192 ' + best.to;
-    await new Promise(r => setTimeout(r, 6000));
-    if (fEl) fEl.classList.remove('best-from');
-    if (tEl) tEl.classList.remove('best-to');
-    if (arrow) arrow.remove();
-  } else {
-    lbl.textContent = 'Analyzing…';
-    await new Promise(r => setTimeout(r, 900));
-  }
-  lbl.classList.remove('show');
-
-  // Hard cleanup — clear EVERYTHING before the result modal fades in.
-  const arrowEl = document.getElementById('best-arrow');
-  if (arrowEl) arrowEl.remove();
-  document.querySelectorAll('#board .best-from, #board .best-to').forEach(el => {
-    el.classList.remove('best-from'); el.classList.remove('best-to');
+  // ---- Hard cleanup so nothing lingers into the result screen ----
+  clearTeachArrows();
+  hideTeachPanel();
+  document.querySelectorAll('#board .teach-hung, #board .teach-threat').forEach(el => {
+    el.classList.remove('teach-hung'); el.classList.remove('teach-threat');
   });
-  if (lbl) lbl.remove();
 }
 
 async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, evalAfterWhitePOV }) {
@@ -1447,12 +1599,11 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
     // Drama beat first
     boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
     blunderEffect(to);
-    showBlunderBubble(to, blunderDetail);
     webFxVerdict('death', to, playerPovDelta);
     sndBlunder();
 
     // Then: undo + show the best move, before the result screen appears.
-    await blunderReplay(fenBefore, from, to);
+    await blunderReplay(fenBefore, from, to, blunderDetail);
     S.replaying = false;
     // If the server's game_over arrived during the replay, show it now.
     if (S._pendingGameOver) { const m = S._pendingGameOver; S._pendingGameOver = null; onGameOver(m); return; }

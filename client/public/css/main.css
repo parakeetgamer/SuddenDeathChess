@@ -1112,3 +1112,8 @@ body {
   .g-left { grid-template-columns:1fr; }
   .find-btn { font-size:24px; padding:16px 24px; }
 }
+
+/* ── TEACHABLE BLUNDER: side panel + board highlights ── */
+.sq.teach-hung { box-shadow: inset 0 0 0 4px #E11D2E; animation: teachHungPulse 1s ease-in-out infinite; z-index: 5; }
+.sq.teach-threat { box-shadow: inset 0 0 0 4px #F59E0B; }
+@keyframes teachHungPulse { 0%,100% { box-shadow: inset 0 0 0 4px rgba(225,29,46,.55); } 50% { box-shadow: inset 0 0 0 4px rgba(225,29,46,1); } }
