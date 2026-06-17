@@ -1119,6 +1119,53 @@ function sparkle(sq, count, color) {
 }
 
 // Randomly selects one of five blunder effects on the blundered square.
+function bbInjectStyle() {
+  if (document.getElementById('bb-style')) return;
+  const st = document.createElement('style'); st.id = 'bb-style';
+  st.textContent =
+    '#blunder-bubble{position:fixed;z-index:1200;width:240px;background:#FFFCF5;color:#2A2118;border-radius:14px;padding:12px 15px;box-shadow:0 12px 34px rgba(0,0,0,.45);transition:opacity .35s,transform .35s;}' +
+    '#blunder-bubble.bb-out{opacity:0;transform:translateY(-6px) scale(.96);}' +
+    '#blunder-bubble .bb-head{font-family:Antonio,sans-serif;font-weight:700;font-size:15px;letter-spacing:.5px;color:#E8722A;margin-bottom:5px;}' +
+    '#blunder-bubble .bb-body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:13px;line-height:1.45;}' +
+    '#blunder-bubble .bb-body strong{color:#C0392B;}' +
+    '#blunder-bubble .bb-tail{position:absolute;bottom:-8px;width:16px;height:16px;background:#FFFCF5;transform:rotate(45deg);}' +
+    '#blunder-bubble.bb-below .bb-tail{bottom:auto;top:-8px;}' +
+    '@keyframes bbPop{from{opacity:0;transform:translateY(8px) scale(.9);}to{opacity:1;transform:translateY(0) scale(1);}}';
+  document.head.appendChild(st);
+}
+function showBlunderBubble(square, d) {
+  bbInjectStyle();
+  const old = document.getElementById('blunder-bubble'); if (old) old.remove();
+  const sqEl = document.querySelector('#board [data-sq="' + square + '"]');
+  if (!sqEl) return;
+  const r = sqEl.getBoundingClientRect();
+  let body;
+  if (d && d.positional) {
+    body = 'That move handed over about <strong>' + d.netLoss + '</strong> pawns of advantage \u2014 just the kind of slip the engine pounces on.';
+  } else if (d) {
+    body = 'Your <strong>' + d.lostPiece + '</strong> on <strong>' + square + '</strong> was left hanging \u2014 the ' + d.attackerPiece + ' from ' + d.attackerFrom + ' could just take it.';
+    if (d.defended) body += ' Even taking back, you\u2019d come out <strong>' + d.netLoss + '</strong> behind.';
+    else body += ' And nothing was guarding it!';
+  } else {
+    body = 'That move gave up too much material.';
+  }
+  const bub = document.createElement('div');
+  bub.id = 'blunder-bubble';
+  bub.style.animation = 'bbPop .35s cubic-bezier(.18,.9,.32,1.4)';
+  bub.innerHTML = '<div class="bb-head">\uD83D\uDCA1 Here\u2019s what happened</div><div class="bb-body">' + body + '</div><div class="bb-tail"></div>';
+  document.body.appendChild(bub);
+  const bw = bub.offsetWidth || 240;
+  let left = r.left + r.width / 2 - bw / 2;
+  left = Math.max(10, Math.min(left, window.innerWidth - bw - 10));
+  const bh = bub.offsetHeight;
+  let top = r.top - bh - 14; let below = false;
+  if (top < 10) { top = r.bottom + 14; below = true; }
+  bub.style.left = left + 'px'; bub.style.top = top + 'px';
+  if (below) bub.classList.add('bb-below');
+  const tail = bub.querySelector('.bb-tail');
+  if (tail) tail.style.left = ((r.left + r.width / 2) - left - 8) + 'px';
+  setTimeout(() => { bub.classList.add('bb-out'); setTimeout(() => { if (bub.parentNode) bub.remove(); }, 400); }, 6500);
+}
 function blunderEffect(toSquare) {
   const fx = ['shatter','melt','blood','tilt','implode','glitch','quake','lightning','ink','freeze','vortex','static'];
   const pick = fx[Math.floor(Math.random() * fx.length)];
@@ -1495,6 +1542,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
     // Drama beat first
     boardGlow(evalDrop >= 3.0 ? 'superbad' : 'bad', 1400);
     blunderEffect(to);
+    showBlunderBubble(to, blunderDetail);
     webFxVerdict('death', to, playerPovDelta);
     sndBlunder();
 
