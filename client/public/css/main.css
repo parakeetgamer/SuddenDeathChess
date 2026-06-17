@@ -18,6 +18,9 @@
   --crimson-dim:  rgba(225,29,46,0.15);
   --gold:         #F5C518;
   --mint:         #34D399;
+  --green:        #66B45A;
+  --yellow:       #E8A33D;
+  --red:          #FF3B30;
 
   --board-light:  #EEEED2;
   --board-dark:   #769656;
@@ -419,6 +422,28 @@ body {
 @keyframes swNumPulse { 0%,100%{transform:translateY(-50%) scale(1)} 50%{transform:translateY(-50%) scale(1.18)} }
 @keyframes swGlow { 0%,100%{box-shadow:0 0 14px rgba(225,29,46,.3)} 50%{box-shadow:0 0 30px rgba(225,29,46,.7)} }
 
+/* ── BOARD-ATTACHED TIME HUD (unavoidable + adrenaline) ── */
+.timehud { display:flex; flex-direction:column; align-items:center; gap:7px; width:min(64vw,580px); margin-top:16px; }
+.th-num { font-family:'Antonio',sans-serif; font-weight:700; font-size:50px; line-height:1; color:var(--green); transition:color .3s; font-variant-numeric:tabular-nums; }
+.th-bar { width:100%; height:16px; background:var(--surface2); border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+.th-fill { height:100%; width:100%; background:var(--green); border-radius:9px; transition:width 1s linear, background .3s; }
+.timehud.warn .th-num { color:var(--yellow); }
+.timehud.warn .th-fill { background:var(--yellow); }
+.timehud.crit .th-num { color:var(--red); animation:thNumPulse .5s ease-in-out infinite; }
+.timehud.crit .th-fill { background:var(--red); }
+
+.board-wrap { transition:box-shadow .3s; }
+#s-game.time-warn .board-wrap { box-shadow:0 0 0 3px var(--yellow), 0 0 26px rgba(232,163,61,.55); }
+#s-game.time-crit .board-wrap { animation:boardCritPulse .5s ease-in-out infinite; }
+
+#time-vignette { position:fixed; inset:0; pointer-events:none; z-index:700; opacity:0; transition:opacity .3s;
+  background:radial-gradient(ellipse 120% 120% at 50% 50%, transparent 52%, rgba(255,59,48,0.42) 100%); }
+#s-game.time-crit #time-vignette { animation:vigPulse .55s ease-in-out infinite; }
+
+@keyframes thNumPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.24)} }
+@keyframes boardCritPulse { 0%,100%{box-shadow:0 0 0 3px var(--red), 0 0 18px rgba(255,59,48,.5)} 50%{box-shadow:0 0 0 5px var(--red), 0 0 48px rgba(255,59,48,.95)} }
+@keyframes vigPulse { 0%,100%{opacity:.22} 50%{opacity:.85} }
+
 /* Eval */
 .eval-outer {
   height:110px; background:var(--obsidian); position:relative;
@@ -442,7 +467,7 @@ body {
 
 /* Center board */
 .g-center {
-  flex:1; display:flex; align-items:center; justify-content:center;
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
   position:relative; overflow:hidden;
   background:radial-gradient(ellipse 70% 70% at 50% 50%, #131820 0%, var(--obsidian) 100%);
 }
