@@ -310,7 +310,7 @@ function startTurnTimer(session, color) {
         : (color === 'white' ? session.white.username : session.black.username);
       endGame(session, color === 'white' ? 'black' : 'white', username + ' ran out of time');
     }
-  }, 1000);
+  }, 750);
 }
 
 function stopTurnTimer(session) {

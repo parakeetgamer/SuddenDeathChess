@@ -1649,7 +1649,7 @@ function startLocalTimer() {
       clearInterval(S.localTimerInterval);
       S.localTimerInterval = null;
     }
-  }, 1000);
+  }, 750);
 }
 
 function stopLocalTimer() {
@@ -1666,7 +1666,7 @@ function updateTimerUI() {
   const max = 5;
   const frac = Math.max(0, Math.min(1, v / max));
   const reset = v >= max;
-  const state = v > 3 ? 'ok' : v > 1 ? 'warn' : 'crit';
+  const state = v > 3 ? 'ok' : v > 2 ? 'warn' : 'crit';
 
   const num = document.getElementById('th-num');
   const bar = document.getElementById('th-fill');
