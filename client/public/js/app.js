@@ -2495,7 +2495,7 @@ function showRecordResult(url, file, fname) {
 
 // Live on-site verdict effects -- identical look to the recorded reel.
 function fxTier(delta, death) {
-  if (death) return { kind:'death', label:'\u2620 GAME OVER', flash:'225,29,46', part:'#E11D2E', n:70, shake:true };
+  if (death) return { kind:'death', label:'\u2620 GAME OVER', flash:'157,43,229', part:'#9D2BE5', n:70, shake:true };
   if (delta >= 2.0) return { kind:'brilliant', label:'BRILLIANT', flash:'245,197,24', part:'#F5C518', n:90, shake:false };
   if (delta >= 0.8) return { kind:'great', label:'GREAT MOVE', flash:'52,211,153', part:'#34D399', n:64, shake:false };
   if (delta <= -1.0) return { kind:'close', label:'CLOSE CALL', flash:'225,29,46', part:'#34D399', n:74, shake:true };
@@ -2575,7 +2575,7 @@ function webFxFrame() {
   if (WFX.verdict && now < WFX.verdict.until && br && br.width > 0) {
     active = true;
     const v = WFX.verdict, vt = (v.until - now)/1400;
-    const col = v.death ? '#E11D2E' : (v.kind==='brilliant' ? '#F5C518' : (v.kind==='close' ? '#FF7A1A' : '#34D399'));
+    const col = v.death ? '#9D2BE5' : (v.kind==='brilliant' ? '#F5C518' : (v.kind==='close' ? '#FF7A1A' : '#34D399'));
     ctx.strokeStyle = col; ctx.lineWidth = v.death ? 9 : 7;
     ctx.strokeRect(br.left-4,br.top-4,br.width+8,br.height+8);
     ctx.textAlign='center'; ctx.textBaseline='middle';
