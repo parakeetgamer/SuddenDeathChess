@@ -336,7 +336,6 @@ async function doAuth() {
     wsSend({ type: 'auth', token: S.token });
 
     updateNavUser();
-    loadLeaderboard();
     show('s-lobby');
     toast(`Welcome${signupMode ? '' : ' back'}, ${username}!`);
   } catch(e) {
@@ -608,24 +607,6 @@ setInterval(() => {
   document.getElementById('stat-online').textContent = onlineBase;
 }, 4000);
 
-async function loadLeaderboard() {
-  if (!document.getElementById('leaderboard')) return;   // leaderboard removed from lobby
-  try {
-    const res = await fetch('/api/users/leaderboard');
-    const users = await res.json();
-    const medals = ['🥇','🥈','🥉'];
-    const html = users.map((u, i) => `
-      <div class="lb-row">
-        <span class="lb-rank ${i<3?['gold','silver','bronze'][i]:''}">${i<3?medals[i]:i+1}</span>
-        <span class="lb-name ${S.user&&u.username===S.user.username?'you':''}">${u.username}</span>
-        <span class="lb-rating">${u.rating}</span>
-      </div>`).join('');
-    document.getElementById('leaderboard').innerHTML = html || '<div style="color:var(--muted);font-size:12px">No players yet</div>';
-  } catch(e) {
-    document.getElementById('leaderboard').innerHTML = '<div style="color:var(--muted);font-size:12px">Loading...</div>';
-  }
-}
-
 // ══════════════════════════════════════════
 // PROFILE
 // ══════════════════════════════════════════
@@ -815,7 +796,6 @@ function pieceKey(p) {
   if (!p) return null;
   return (p.color === 'w' ? 'w' : 'b') + p.type.toUpperCase();
 }
-
 
 // ══════════════════════════════════════════
 // PRE-GAME COUNTDOWN
@@ -1881,7 +1861,6 @@ window.abandonGame = function() {
 // Wrap onGameOver with bulletproof error logging
 const _originalOnGameOver = typeof onGameOver !== 'undefined' ? onGameOver : null;
 
-
 // Auto-restart countdown on result modal
 function startAutoRestartCountdown() {
   const btn = document.getElementById('btn-replay') || document.getElementById('m-again') || document.querySelector('[data-action="rematch"]');
@@ -1988,7 +1967,6 @@ function onGameOver(msg) {
   injectBestMoveCTA(iWon);
   injectGuestSaveCTA();
 
-  loadLeaderboard();
   // Delay modal so dramatic blunder reaction plays first
   setTimeout(() => {
     const modal = document.getElementById('result-modal');
@@ -2059,7 +2037,7 @@ function showPremium() {
     ['🎨','Premium texture packs',"Unlock exclusive boards, piece sets, and themes."],
     ['📊','Deep game analysis',"Full history, rating trends, and accuracy breakdowns."],
     ['⚡','Top 3 moves you missed',"See the strongest moves you didn't find, every game."],
-    ['👑','Premium badge',"Flex your status next to your name on the leaderboard."],
+    ['👑','Premium badge',"Show off a premium badge right next to your name."],
   ];
   const rows = benefits.map(function(item){
     const icon = item[0], title = item[1], sub = item[2];
@@ -2671,7 +2649,6 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
         S.ratingHistory = [S.user.rating];
         updateNavUser();
         if (S.user.no_ads || S.user.is_premium) hideAds();
-        loadLeaderboard();
         show('s-lobby');
       } else {
         localStorage.removeItem('sdc_token');
