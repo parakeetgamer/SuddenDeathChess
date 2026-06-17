@@ -1,13 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Antonio:wght@400;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 :root {
-  /* Ember on Obsidian palette */
-  --obsidian:     #0E1116;
-  --surface:      #191D24;
-  --surface2:     #222833;
-  --surface3:     #2C3340;
-  --border:       #2E3545;
-  --border2:      #3D4A5C;
+  /* Parchment Light palette — neutrals lightened, ember/crimson accents kept */
+  --obsidian:     #F3EEE5;
+  --surface:      #FBF8F2;
+  --surface2:     #EFE8DA;
+  --surface3:     #E7DECE;
+  --border:       #DDD3C0;
+  --border2:      #C8BBA2;
+
+  --ink:          #1A140C;   /* always-dark text for use on accent fills */
 
   --ember:        #FF7A1A;
   --ember-dim:    rgba(255,122,26,0.15);
@@ -22,14 +24,14 @@
   --board-last:   rgba(255,122,26,0.32);
   --board-select: rgba(245,197,24,0.85);
 
-  --text:         #F5F1EA;
-  --text-dim:     #A1A1AA;
-  --text-muted:   #52525B;
+  --text:         #2A2118;
+  --text-dim:     #6B6152;
+  --text-muted:   #9A8F7C;
 
   /* Move quality colors */
   --q-brilliant: #F5C518;
   --q-best:      #34D399;
-  --q-good:      #F5F1EA;
+  --q-good:      #2A2118;
   --q-inaccuracy:#FF7A1A;
   --q-mistake:   #F97316;
   --q-blunder:   #E11D2E;
@@ -156,7 +158,7 @@ body {
 .err-msg { font-size:11px; color:var(--crimson); font-family:'JetBrains Mono',monospace; min-height:16px; margin-bottom:12px; margin-top:-10px; }
 
 .btn-ember {
-  width:100%; background:var(--ember); color:var(--obsidian); border:none;
+  width:100%; background:var(--ember); color:var(--ink); border:none;
   padding:16px; font-family:'Antonio',sans-serif; font-size:22px;
   font-weight:700; letter-spacing:4px; cursor:pointer;
   transition:background .12s, transform .1s, box-shadow .2s;
@@ -254,7 +256,7 @@ body {
 .chip strong { color:var(--text); }
 
 .find-btn {
-  background:var(--ember); color:var(--obsidian); border:none;
+  background:var(--ember); color:var(--ink); border:none;
   padding:22px 80px; font-family:'Antonio',sans-serif; font-weight:700;
   font-size:34px; letter-spacing:5px; cursor:pointer;
   position:relative; overflow:hidden;
@@ -625,10 +627,10 @@ body {
   font-size:14px; font-weight:700; border-radius:2px;
   font-family:'JetBrains Mono',monospace;
 }
-.qs-brilliant { background:var(--q-brilliant); color:var(--obsidian); }
-.qs-best      { background:var(--q-best);      color:var(--obsidian); }
+.qs-brilliant { background:var(--q-brilliant); color:var(--ink); }
+.qs-best      { background:var(--q-best);      color:var(--ink); }
 .qs-good      { background:var(--surface3);    color:var(--text); }
-.qs-inaccuracy{ background:var(--q-inaccuracy); color:var(--obsidian); }
+.qs-inaccuracy{ background:var(--q-inaccuracy); color:var(--ink); }
 .qs-blunder   { background:var(--q-blunder);   color:#fff; }
 
 .share-btn {
@@ -680,7 +682,7 @@ body {
   width:68px; height:68px; background:var(--ember);
   display:flex; align-items:center; justify-content:center;
   font-family:'Antonio',sans-serif; font-size:34px; font-weight:700;
-  color:var(--obsidian); flex-shrink:0;
+  color:var(--ink); flex-shrink:0;
 }
 .prof-name { font-family:'Antonio',sans-serif; font-size:36px; font-weight:700; letter-spacing:2px; }
 .prof-rating-big { font-family:'Antonio',sans-serif; font-size:54px; color:var(--ember); letter-spacing:3px; line-height:1; }
@@ -826,7 +828,7 @@ body {
   position: absolute !important;
   top: -4px !important; bottom: -4px !important;
   width: 2px !important;
-  background: #FFFFFF !important;
+  background: var(--text-dim) !important;
   left: 75% !important;
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
   z-index: 2;
@@ -960,7 +962,7 @@ body {
 #countdown-num {
   font-family: 'Antonio', sans-serif; font-weight: 700;
   font-size: clamp(120px, 22vw, 240px); line-height: 1;
-  color: #F5F1EA; text-shadow: 0 0 60px rgba(255,122,26,0.5);
+  color: var(--ember); text-shadow: 0 0 60px rgba(255,122,26,0.5);
 }
 #countdown-num.pop { animation: cdPop 0.4s cubic-bezier(.2,.8,.3,1); }
 @keyframes cdPop {
