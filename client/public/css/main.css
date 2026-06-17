@@ -55,21 +55,6 @@ body {
 
 /* ── GLOBAL FX ── */
 #flash { position:fixed; inset:0; z-index:900; pointer-events:none; opacity:0; transition:opacity .08s ease; }
-#feedback-text {
-  position:fixed; top:50%; left:50%;
-  transform:translate(-50%,-50%) scale(0);
-  font-family:'Antonio',sans-serif;
-  font-size:clamp(60px,9vw,100px);
-  letter-spacing:8px; pointer-events:none; z-index:901; opacity:0;
-}
-#feedback-text.pop { animation:pop-anim .75s cubic-bezier(.22,.61,.36,1) forwards; }
-@keyframes pop-anim {
-  0%   { transform:translate(-50%,-50%) scale(.4); opacity:0; }
-  30%  { transform:translate(-50%,-50%) scale(1.1); opacity:1; }
-  65%  { transform:translate(-50%,-50%) scale(1); opacity:1; }
-  100% { transform:translate(-50%,-50%) scale(1.3); opacity:0; }
-}
-
 #toast {
   position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
   background:var(--surface); border:1px solid var(--border2);
@@ -911,30 +896,6 @@ body {
   70% { transform: translate(-6px,2px); }
   80% { transform: translate(4px,-2px); }
 }
-.shatter-overlay {
-  position: fixed; z-index: 9500; pointer-events: none;
-}
-.shatter-overlay svg { width: 100%; height: 100%; overflow: visible; }
-.shatter-overlay g path {
-  stroke-dasharray: 200; stroke-dashoffset: 200;
-  animation: crackDraw 0.25s ease-out forwards;
-  filter: drop-shadow(0 0 3px rgba(255,255,255,.8));
-}
-@keyframes crackDraw { to { stroke-dashoffset: 0; } }
-.shatter-frags { position: fixed; z-index: 9400; pointer-events: none; }
-.frag {
-  position: absolute; width: 12%; height: 12%;
-  background: linear-gradient(135deg, #3a2e26, #2c3340);
-  border: 1px solid rgba(255,255,255,.15);
-  opacity: 0;
-  animation: fragFly 1.3s cubic-bezier(.4,0,.7,1) forwards;
-  animation-delay: var(--fd, 0s);
-}
-@keyframes fragFly {
-  0% { opacity: 1; transform: translate(0,0) rotate(0deg); }
-  100% { opacity: 0; transform: translate(var(--fx), var(--fy)) rotate(var(--fr)); }
-}
-
 /* ── BLUNDER REPLAY ── */
 .replay-label {
   position: fixed; top: 12%; left: 50%; transform: translateX(-50%) translateY(-10px);
