@@ -609,6 +609,7 @@ setInterval(() => {
 }, 4000);
 
 async function loadLeaderboard() {
+  if (!document.getElementById('leaderboard')) return;   // leaderboard removed from lobby
   try {
     const res = await fetch('/api/users/leaderboard');
     const users = await res.json();

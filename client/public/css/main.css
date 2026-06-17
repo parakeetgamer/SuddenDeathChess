@@ -203,6 +203,12 @@ body {
 .nav-username { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-dim); }
 .nav-rating { font-family:'Antonio',sans-serif; font-size:22px; color:var(--ember); letter-spacing:2px; }
 
+.nav-stats { display:flex; align-items:center; gap:28px; }
+.nav-stat { display:flex; flex-direction:column; align-items:center; line-height:1; }
+.ns-label { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--text-muted); margin-bottom:3px; }
+.ns-val { font-family:'Antonio',sans-serif; font-size:20px; letter-spacing:1px; color:var(--text); }
+.ns-val.ember { color:var(--ember); }
+
 /* ════════════════════════════════════════
    LOBBY
 ════════════════════════════════════════ */
@@ -1192,6 +1198,7 @@ body {
 
   .ad { max-width:100% !important; }
   .nav .ad, .game-nav .ad { display:none; }
+  .nav-stats { display:none; }
 
   .game-body { flex-direction:column; overflow:visible; height:auto; }
   .g-center { order:-1; flex:none; padding:12px 18px 26px; overflow:visible; min-height:0; }
