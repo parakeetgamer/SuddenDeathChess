@@ -798,13 +798,20 @@ async function showProfile() {
     if (av) {
       av.style.position = 'relative';
       if (u.is_premium) {
-        av.style.boxShadow = '0 0 0 3px #F5C518, 0 0 18px rgba(245,197,24,0.55)';
-        if (!document.getElementById('prof-avatar-crown')) {
-          const cr = document.createElement('div'); cr.id = 'prof-avatar-crown';
-          cr.textContent = '\uD83D\uDC51';
-          cr.style.cssText = 'position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:24px;filter:drop-shadow(0 0 7px rgba(245,197,24,0.85))';
-          av.appendChild(cr);
+        const _vip = u.vip;
+        av.style.boxShadow = _vip
+          ? '0 0 0 3px #B14BE8, 0 0 24px rgba(177,75,232,0.65)'
+          : '0 0 0 3px #F5C518, 0 0 18px rgba(245,197,24,0.55)';
+        if (_vip && !document.getElementById('vip-crown-style')) {
+          const vs = document.createElement('style'); vs.id = 'vip-crown-style';
+          vs.textContent = '@keyframes vipCrown{0%,100%{transform:translateX(-50%) translateY(0) rotate(-7deg)}50%{transform:translateX(-50%) translateY(-4px) rotate(7deg)}}@keyframes vipGlow{0%,100%{filter:drop-shadow(0 0 8px rgba(245,197,24,.9))}50%{filter:drop-shadow(0 0 16px rgba(177,75,232,1))}}';
+          document.head.appendChild(vs);
         }
+        let cr = document.getElementById('prof-avatar-crown');
+        if (!cr) { cr = document.createElement('div'); cr.id = 'prof-avatar-crown'; cr.textContent = '\uD83D\uDC51'; av.appendChild(cr); }
+        cr.style.cssText = _vip
+          ? 'position:absolute;top:-19px;left:50%;transform:translateX(-50%);font-size:30px;animation:vipCrown 2.4s ease-in-out infinite, vipGlow 2.4s ease-in-out infinite'
+          : 'position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:24px;filter:drop-shadow(0 0 7px rgba(245,197,24,0.85))';
       } else {
         av.style.boxShadow = '';
         const c = document.getElementById('prof-avatar-crown'); if (c) c.remove();
@@ -813,11 +820,10 @@ async function showProfile() {
     const nameEl = document.getElementById('prof-name');
     let badge = document.getElementById('prof-premium-badge');
     if (u.is_premium && nameEl) {
-      if (!badge) {
-        badge = document.createElement('div'); badge.id = 'prof-premium-badge';
-        badge.innerHTML = '<span style="display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:5px 14px;border-radius:20px;background:linear-gradient(135deg,rgba(245,197,24,0.18),rgba(255,122,26,0.18));border:1px solid rgba(245,197,24,0.5);font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:2px;color:#F5C518;text-transform:uppercase">\uD83D\uDC51 Premium \uD83D\uDC8E</span>';
-        nameEl.insertAdjacentElement('afterend', badge);
-      }
+      if (!badge) { badge = document.createElement('div'); badge.id = 'prof-premium-badge'; nameEl.insertAdjacentElement('afterend', badge); }
+      badge.innerHTML = u.vip
+        ? '<span style="display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:5px 14px;border-radius:20px;background:linear-gradient(135deg,rgba(177,75,232,0.28),rgba(245,197,24,0.22));border:1px solid rgba(177,75,232,0.6);font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:2px;color:#EAC9FF;text-transform:uppercase">\u2726 VIP \u2726</span>'
+        : '<span style="display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:5px 14px;border-radius:20px;background:linear-gradient(135deg,rgba(245,197,24,0.18),rgba(255,122,26,0.18));border:1px solid rgba(245,197,24,0.5);font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:2px;color:#F5C518;text-transform:uppercase">\uD83D\uDC51 Premium \uD83D\uDC8E</span>';
     } else if (badge) { badge.remove(); }
   })();
 

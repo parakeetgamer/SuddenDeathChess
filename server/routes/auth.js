@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const { isVip } = require('../vip');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'sdc-dev-secret-change-in-prod';
@@ -44,7 +45,8 @@ router.post('/login', async (req, res) => {
 });
 
 function safeUser(u) {
-  return { id: u.id, username: u.username, rating: u.rating, peak_rating: u.peak_rating, wins: u.wins, losses: u.losses, games: u.games, no_ads: u.no_ads === 1, is_premium: u.is_premium === 1 };
+  const vip = isVip(u.username);
+  return { id: u.id, username: u.username, rating: u.rating, peak_rating: u.peak_rating, wins: u.wins, losses: u.losses, games: u.games, no_ads: u.no_ads === 1 || vip, is_premium: u.is_premium === 1 || vip, vip: vip };
 }
 
 module.exports = router;
