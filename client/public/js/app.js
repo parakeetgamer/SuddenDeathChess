@@ -430,6 +430,7 @@ function handleServerMsg(msg) {
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  if (id === 's-lobby') initAds();
 }
 
 // ══════════════════════════════════════════
@@ -3025,4 +3026,16 @@ function defeatFx() {
   else if (pick === 'smoke') { bfx2Embers(2200, '#3D4A5C'); fx2Wash('rgba(14,17,22,0.35)'); }
   else fx2Vignette('225,29,46');
   fx2BigTitle(title, '#E11D2E', false);
+}
+
+function initAds() {
+  if (typeof S !== 'undefined' && S.user && (S.user.no_ads || S.user.is_premium)) {
+    if (typeof hideAds === 'function') hideAds();
+    return;
+  }
+  document.querySelectorAll('.ad:not(.adsbygoogle)').forEach(el => { el.style.display = 'none'; });
+  document.querySelectorAll('ins.adsbygoogle:not([data-sdc-init])').forEach(el => {
+    el.setAttribute('data-sdc-init', '1');
+    try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+  });
 }
