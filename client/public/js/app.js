@@ -2817,7 +2817,7 @@ function tutorialStyle() {
 }
 
 const TUT_STEPS = [
-  { icon: '\u265E', title: 'Sudden Death Chess', body: 'Normal chess rules \u2014 with one twist: <strong>a single blunder ends the game instantly.</strong> Hang a piece or throw the position away and it\u2019s game over on the spot.' },
+  { icon: '\u265E', title: 'Sudden Death Chess', body: 'Normal chess rules \u2014 with one twist: <strong>a single blunder ends the game instantly.</strong> Leave a piece open to capture, or hand your opponent a winning lead, and it\u2019s game over on the spot.' },
   { icon: '\u23F1\uFE0F', title: 'Beat the Clock', body: 'You get just a few seconds per move. The bar up top counts down and turns <strong>red</strong> when you\u2019re nearly out \u2014 let it hit zero and you lose.' },
   { icon: '\u270B', title: 'Making Moves', body: 'Tap or drag a piece, then tap where it goes. <strong>Legal moves light up</strong> so you always see your options. The engine grades every move the instant you make it.' },
   { icon: '\uD83C\uDFC6', title: 'Ready?', body: 'Win to climb the rating ladder. <strong>Sign in to save your progress</strong>, or just hit Play and jump in. Good luck \u2014 and don\u2019t blunder.' },
