@@ -2824,7 +2824,6 @@ const TUT_STEPS = [
 ];
 
 function maybeShowTutorial() {
-  try { if (localStorage.getItem('sdc_tutorial_seen')) return; } catch (e) {}
   if (S.token || S.joinChallenge) return;
   showTutorial();
 }
