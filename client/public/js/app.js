@@ -953,7 +953,7 @@ function onGameStart(msg) {
   S._flipped = undefined;
 
   // Pre-game countdown overlay
-  ensureRecordButton();
+  ensureContentPanel();
   startPreGameCountdown(msg.color === 'white');
 }
 
@@ -2495,7 +2495,146 @@ function recDrawFrame() {
 
   ctx.restore();
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  if (REC.active) REC.raf = requestAnimationFrame(recDrawFrame);
+  if (REC.active) REC.raf = requestAnimationFrame(REC.drawFn || recDrawFrame);
+}
+
+function recDrawFrameLandscape() {
+  const ctx = REC.ctx, W = 960, H = 540, now = Date.now();
+  const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+  if (REC._prevJudging && !S.judging && !S.gameOver) REC._safeUntil = now + 1100;
+  if (S.gameOver) REC._safeUntil = 0;
+  REC._prevJudging = S.judging;
+  const phase = S.gameOver ? 'death' : (S.judging ? 'judging' : (now < (REC._safeUntil || 0) ? 'safe' : 'idle'));
+
+  const bSize = 440, bX = 470, bY = 50, cell = bSize / 8;
+  const bcx = bX + bSize / 2, bcy = bY + bSize / 2;
+  const flipped = S.myColor === 'black';
+  function originOf(sq) {
+    if (!sq || sq.length < 2) return [bcx, bcy];
+    const f = sq.charCodeAt(0) - 97, ri = parseInt(sq[1]) - 1;
+    if (isNaN(f) || isNaN(ri)) return [bcx, bcy];
+    const col = flipped ? 7 - f : f, row = flipped ? ri : 7 - ri;
+    return [bX + col * cell + cell / 2, bY + row * cell + cell / 2];
+  }
+
+  if (phase !== REC._prevPhase) {
+    const o = originOf(S.lastTo);
+    const tier = fxTier(typeof S.lastMoveDelta === 'number' ? S.lastMoveDelta : 0, phase === 'death');
+    if (phase === 'safe') { REC._streak = (REC._streak || 0) + 1; REC._streakPop = now; }
+    if (phase === 'death') { REC._streak = 0; }
+    if (phase === 'safe' || phase === 'death') { REC._fx = { type: phase, start: now, x: o[0], y: o[1], rgb: tier.flash, label: tier.label }; recBurst(o[0], o[1], tier.part, tier.n); }
+  }
+  REC._prevPhase = phase;
+  const fx = REC._fx; const fxT = fx ? (now - fx.start) / 700 : 2; const fxX = fx ? fx.x : bcx, fxY = fx ? fx.y : bcy;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#0E1116'; ctx.fillRect(0, 0, W, H);
+  let shx = 0, shy = 0;
+  if (fx && fx.type === 'death' && fxT < 0.45) { const amp = 12 * (1 - fxT / 0.45); shx = (Math.random() - 0.5) * amp; shy = (Math.random() - 0.5) * amp; }
+  let punch = 1; if (fx && fxT < 0.3) punch = 1 + 0.04 * (1 - fxT / 0.3);
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(punch, punch); ctx.translate(-W / 2, -H / 2); ctx.translate(shx, shy);
+  ctx.textBaseline = 'middle';
+
+  const camX = 24, camY = 24, camW = 410, camH = 230;
+  if (REC.video && REC.video.videoWidth) {
+    const v = REC.video, vw = v.videoWidth, vh = v.videoHeight;
+    const scale = Math.max(camW / vw, camH / vh), dw = vw * scale, dh = vh * scale;
+    ctx.save(); ctx.beginPath(); ctx.rect(camX, camY, camW, camH); ctx.clip();
+    ctx.drawImage(v, camX + (camW - dw) / 2, camY + (camH - dh) / 2, dw, dh); ctx.restore();
+    ctx.strokeStyle = '#FF7A1A'; ctx.lineWidth = 3; ctx.strokeRect(camX, camY, camW, camH);
+  } else {
+    ctx.fillStyle = '#14171C'; ctx.fillRect(camX, camY, camW, camH);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FF7A1A'; ctx.font = '700 38px Antonio, sans-serif'; ctx.fillText('SUDDEN DEATH', camX + camW / 2, camY + camH / 2 - 8);
+    ctx.fillStyle = '#F5F1EA'; ctx.fillText('CHESS', camX + camW / 2, camY + camH / 2 + 34);
+    ctx.textAlign = 'left';
+  }
+
+  ctx.textAlign = 'left'; ctx.font = '700 26px Antonio, sans-serif';
+  let lx = camX; const ly = camY + camH + 44;
+  ctx.fillStyle = '#FF7A1A'; ctx.fillText('SUDDEN', lx, ly); lx += ctx.measureText('SUDDEN').width + 8;
+  ctx.fillStyle = '#E11D2E'; ctx.fillText('DEATH', lx, ly); lx += ctx.measureText('DEATH').width + 8;
+  ctx.fillStyle = '#F5F1EA'; ctx.fillText('CHESS', lx, ly);
+  ctx.fillStyle = '#6B7280'; ctx.font = '700 12px JetBrains Mono, monospace';
+  ctx.fillText('ONE WRONG MOVE = DEATH', camX, ly + 24);
+
+  if ((REC._streak || 0) > 0) {
+    const sp = REC._streakPop ? Math.max(0, 1 - (now - REC._streakPop) / 350) : 0; const bs = 1 + 0.3 * sp;
+    ctx.save(); ctx.translate(camX + 10, camY + camH + 100); ctx.scale(bs, bs); ctx.textAlign = 'left';
+    ctx.font = '700 34px Antonio, sans-serif'; ctx.fillStyle = '#FF7A1A'; ctx.fillText('\uD83D\uDD25 ' + REC._streak, 0, 0);
+    ctx.font = '700 11px JetBrains Mono, monospace'; ctx.fillStyle = '#F5F1EA'; ctx.fillText('SURVIVED', 2, 24); ctx.restore();
+  }
+  const tv = Math.max(0, (typeof S.timerVal === 'number') ? S.timerVal : 5);
+  const tcol = tv > 3 ? '#34D399' : (tv > 1 ? '#F5C518' : '#E11D2E');
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#52525B'; ctx.font = '700 11px JetBrains Mono, monospace'; ctx.fillText('TIME LEFT', camX + camW, camY + camH + 96);
+  const tscale = (tv <= 2 && phase !== 'death') ? (1 + 0.12 * pulse) : 1;
+  ctx.save(); ctx.translate(camX + camW - 4, camY + camH + 132); ctx.scale(tscale, tscale);
+  ctx.fillStyle = tcol; ctx.font = '700 52px Antonio, sans-serif'; ctx.fillText(String(tv), 0, 0); ctx.restore();
+  ctx.textAlign = 'left';
+
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const col = flipped ? 7 - f : f, row = flipped ? r : 7 - r;
+    ctx.fillStyle = ((f + r) % 2 === 0) ? '#3A2E26' : '#E8D7B5';
+    ctx.fillRect(bX + col * cell, bY + row * cell, cell, cell);
+  }
+  if (REC.pieceImgs && S.chess) {
+    [S.lastFrom, S.lastTo].filter(Boolean).forEach(sq => {
+      const f = sq.charCodeAt(0) - 97, ri = parseInt(sq[1]) - 1;
+      const col = flipped ? 7 - f : f, row = flipped ? ri : 7 - ri;
+      ctx.fillStyle = 'rgba(255,122,26,0.32)'; ctx.fillRect(bX + col * cell, bY + row * cell, cell, cell);
+    });
+    for (let rr = 1; rr <= 8; rr++) for (let f = 0; f < 8; f++) {
+      const sq = 'abcdefgh'[f] + rr; let p; try { p = S.chess.get(sq); } catch (e) { p = null; }
+      if (!p) continue;
+      const img = REC.pieceImgs[(p.color === 'w' ? 'w' : 'b') + p.type.toUpperCase()];
+      if (!img || !img.complete || !img.naturalWidth) continue;
+      const col = flipped ? 7 - f : f, row = flipped ? (rr - 1) : (8 - rr);
+      try { ctx.drawImage(img, bX + col * cell + 3, bY + row * cell + 3, cell - 6, cell - 6); } catch (e) {}
+    }
+  }
+  if (phase === 'judging') {
+    const g = ctx.createRadialGradient(bcx, bcy, bSize * 0.22, bcx, bcy, bSize * 0.85);
+    g.addColorStop(0, 'rgba(225,29,46,0)'); g.addColorStop(1, 'rgba(225,29,46,' + (0.18 + 0.24 * pulse).toFixed(2) + ')');
+    ctx.fillStyle = g; ctx.fillRect(bX - 20, bY - 20, bSize + 40, bSize + 40);
+  }
+  if (fx && fxT < 1) {
+    const col = (fx && fx.rgb) ? fx.rgb : (fx.type === 'safe' ? '52,211,153' : '225,29,46');
+    ctx.strokeStyle = 'rgba(' + col + ',' + (1 - fxT).toFixed(2) + ')'; ctx.lineWidth = 10 * (1 - fxT) + 2;
+    ctx.beginPath(); ctx.arc(fxX, fxY, cell * 0.4 + fxT * bSize * 0.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(' + col + ',' + (0.4 * (1 - fxT)).toFixed(2) + ')'; ctx.fillRect(0, 0, W, H);
+  }
+  recDrawParticles(ctx);
+  let bcr = '#3D4A5C', bw = 2;
+  if (phase === 'judging') { bcr = 'rgba(255,122,26,' + (0.4 + 0.6 * pulse).toFixed(2) + ')'; bw = 6; }
+  else if (phase === 'death') { bcr = '#E11D2E'; bw = 9; }
+  else if (phase === 'safe') { bcr = '#34D399'; bw = 7; }
+  ctx.strokeStyle = bcr; ctx.lineWidth = bw; ctx.strokeRect(bX - bw / 2, bY - bw / 2, bSize + bw, bSize + bw);
+
+  const sy = bY + bSize + 34; ctx.textAlign = 'center';
+  if (phase === 'judging') {
+    const dots = '.'.repeat(1 + (Math.floor(now / 300) % 3)); const hb = 1 + 0.07 * pulse;
+    ctx.save(); ctx.translate(bcx, sy); ctx.scale(hb, hb);
+    ctx.fillStyle = 'rgba(255,122,26,' + (0.6 + 0.4 * pulse).toFixed(2) + ')'; ctx.font = '700 30px Antonio, sans-serif';
+    ctx.fillText('DID IT SURVIVE' + dots, 0, 0); ctx.restore();
+  } else if (phase === 'death') {
+    const pop = fx ? Math.min(1, fxT * 3) : 1;
+    ctx.save(); ctx.translate(bcx, sy); ctx.scale(0.7 + 0.35 * pop, 0.7 + 0.35 * pop);
+    ctx.fillStyle = '#E11D2E'; ctx.font = '700 40px Antonio, sans-serif';
+    ctx.fillText((fx && fx.label) || '\u2620 GAME OVER', 0, 0); ctx.restore();
+  } else if (phase === 'safe') {
+    ctx.fillStyle = (fx && fx.rgb) ? ('rgb(' + fx.rgb + ')') : '#34D399'; ctx.font = '700 34px Antonio, sans-serif';
+    ctx.fillText((fx && fx.label) || '\u2713 SURVIVED', bcx, sy);
+  } else {
+    ctx.fillStyle = '#A1A1AA'; ctx.font = '700 22px Antonio, sans-serif'; ctx.fillText('MAKE YOUR MOVE', bcx, sy);
+  }
+
+  ctx.textAlign = 'left'; ctx.fillStyle = '#FF7A1A'; ctx.font = '700 18px JetBrains Mono, monospace';
+  ctx.fillText('\u25B6 suddendeathchess.com', camX, H - 22);
+
+  ctx.restore();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  if (REC.active) REC.raf = requestAnimationFrame(REC.drawFn || recDrawFrameLandscape);
 }
 
 function recBurst(cx, cy, color, n) {
@@ -2521,51 +2660,70 @@ function recDrawParticles(ctx) {
 
 async function startRecording(btn) {
   if (REC.active) return;
+  REC.format = REC.format || 'reels';
+  REC.useCam = (REC.useCam !== false);
+  REC.useMic = (REC.useMic !== false);
   REC.mime = recPickMime();
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
-    toast('Recording is not supported on this browser.'); return;
-  }
-  try {
-    REC.userStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:640, height:480 }, audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:false } });
-  } catch(e) { toast('Camera/mic permission denied.'); return; }
+  if (typeof MediaRecorder === 'undefined') { toast('Recording is not supported on this browser.'); return; }
 
-  REC.video = document.createElement('video');
-  REC.video.muted = true; REC.video.playsInline = true; REC.video.autoplay = true;
-  REC.video.srcObject = REC.userStream;
-  try { await REC.video.play(); } catch(e) {}
+  REC.userStream = null;
+  if (REC.useCam || REC.useMic) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Camera/mic not available.'); return; }
+    try {
+      REC.userStream = await navigator.mediaDevices.getUserMedia({
+        video: REC.useCam ? { facingMode:'user', width:640, height:480 } : false,
+        audio: REC.useMic ? { echoCancellation:true, noiseSuppression:true, autoGainControl:false } : false
+      });
+    } catch(e) { toast('Camera/mic permission denied.'); return; }
+  }
+
+  REC.video = null;
+  if (REC.useCam && REC.userStream && REC.userStream.getVideoTracks().length) {
+    REC.video = document.createElement('video');
+    REC.video.muted = true; REC.video.playsInline = true; REC.video.autoplay = true;
+    REC.video.srcObject = REC.userStream;
+    try { await REC.video.play(); } catch(e) {}
+  }
 
   REC.pieceImgs = await recLoadPieces();
+  const desktop = REC.format === 'desktop';
   REC.canvas = document.createElement('canvas');
-  REC.canvas.width = 540; REC.canvas.height = 960;
+  REC.canvas.width = desktop ? 960 : 540;
+  REC.canvas.height = desktop ? 540 : 960;
   REC.ctx = REC.canvas.getContext('2d');
+  REC.drawFn = desktop ? recDrawFrameLandscape : recDrawFrame;
   REC._streak = 0; REC._prevPhase = null; REC._fx = null;
   REC.canvas.id = 'rec-preview';
-  REC.canvas.style.cssText = 'position:fixed;top:70px;left:14px;width:108px;height:192px;z-index:1450;border:2px solid #FF7A1A;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.55);background:#000';
+  const pw = desktop ? 192 : 108, ph = desktop ? 108 : 192;
+  REC.canvas.style.cssText = 'position:fixed;top:70px;left:14px;width:' + pw + 'px;height:' + ph + 'px;z-index:1450;border:2px solid #FF7A1A;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.55);background:#000';
   document.body.appendChild(REC.canvas);
   REC.active = true;
-  recDrawFrame();
+  REC.drawFn();
 
   try { REC.stream = REC.canvas.captureStream(30); }
   catch(e) { toast('Recording blocked by the browser.'); stopRecordingCleanup(); return; }
   try {
-    const ac = ga();                       // share the game's audio context so we capture SFX
+    const ac = ga();
     if (ac.state === 'suspended') ac.resume();
     const recDest = ac.createMediaStreamDestination();
-    try { sfxBus().connect(recDest); } catch (e) {}   // game sound effects into the clip
-    const aSrc = ac.createMediaStreamSource(REC.userStream);
-    const comp = ac.createDynamicsCompressor();
-    comp.threshold.value = -28; comp.knee.value = 20; comp.ratio.value = 6;
-    comp.attack.value = 0.003; comp.release.value = 0.2;
-    const makeup = ac.createGain(); makeup.gain.value = 1.5;   // gentler than before
-    const gate = ac.createGain(); gate.gain.value = 0;          // noise gate: starts closed
-    const analyser = ac.createAnalyser(); analyser.fftSize = 512;
-    aSrc.connect(comp); comp.connect(analyser); comp.connect(makeup); makeup.connect(gate); gate.connect(recDest);
-    REC._audioNodes = { aSrc, comp, makeup, gate, analyser, recDest, ac };
-    REC._gateOpen = false;
-    recGateTick();
+    try { sfxBus().connect(recDest); } catch (e) {}
+    if (REC.useMic && REC.userStream && REC.userStream.getAudioTracks().length) {
+      const aSrc = ac.createMediaStreamSource(REC.userStream);
+      const comp = ac.createDynamicsCompressor();
+      comp.threshold.value = -28; comp.knee.value = 20; comp.ratio.value = 6;
+      comp.attack.value = 0.003; comp.release.value = 0.2;
+      const makeup = ac.createGain(); makeup.gain.value = 1.5;
+      const gate = ac.createGain(); gate.gain.value = 0;
+      const analyser = ac.createAnalyser(); analyser.fftSize = 512;
+      aSrc.connect(comp); comp.connect(analyser); comp.connect(makeup); makeup.connect(gate); gate.connect(recDest);
+      REC._audioNodes = { aSrc, comp, makeup, gate, analyser, recDest, ac };
+      REC._gateOpen = false; recGateTick();
+    } else {
+      REC._audioNodes = { recDest, ac };
+    }
     recDest.stream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
   } catch (e) {
-    REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t));
+    if (REC.useMic && REC.userStream) { try { REC.userStream.getAudioTracks().forEach(t => REC.stream.addTrack(t)); } catch(_){} }
   }
 
   REC.chunks = [];
@@ -2584,9 +2742,8 @@ async function startRecording(btn) {
   REC.recorder.onstop = () => finishRecording();
   REC.recorder.start();
 
-  btn.textContent = '⏹ STOP & SAVE';
-  btn.style.background = '#E11D2E'; btn.style.color = '#fff'; btn.style.borderColor = '#E11D2E';
-  toast('Recording… go make some content!');
+  if (btn) { btn.textContent = '\u25A0 Done'; btn.classList.add('cc-rec'); }
+  toast('Recording\u2026 go make some content!');
 }
 
 function stopRecording(btn) {
@@ -2618,27 +2775,20 @@ function finishRecording() {
 }
 
 function showRecordResult(url, file, fname) {
-  let ov = document.getElementById('rec-result'); if (ov) ov.remove();
-  ov = document.createElement('div'); ov.id = 'rec-result';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:2100;overflow-y:auto;background:rgba(14,17,22,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px';
+  const panel = document.getElementById('cc-panel');
   const canShareFile = !!(navigator.canShare && file && navigator.canShare({ files:[file] }));
-  ov.innerHTML =
-    '<div style="width:100%;max-width:340px;text-align:center">' +
-      '<div style="font-family:Antonio,sans-serif;font-size:28px;font-weight:700;color:#F5F1EA;margin-bottom:4px">Your clip is ready</div>' +
-      '<div style="font-size:13px;color:#A1A1AA;margin-bottom:16px">Share it or download to post anywhere.</div>' +
-      '<video src="' + url + '" controls playsinline style="width:100%;border-radius:10px;background:#000;margin-bottom:18px"></video>' +
-      (canShareFile ? '<button id="rec-share" style="width:100%;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border:none;padding:16px;font-family:Antonio,sans-serif;font-size:20px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px;margin-bottom:10px">📲 Share to Social</button>' : '') +
-      '<a id="rec-dl" href="' + url + '" download="' + fname + '" style="display:block;width:100%;background:transparent;color:#F5F1EA;border:1px solid #3D4A5C;padding:15px;font-family:Antonio,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:6px;text-decoration:none;box-sizing:border-box;margin-bottom:10px">⬇ Download</a>' +
-      '<div id="rec-close" style="font-size:13px;color:#A1A1AA;margin-top:8px;cursor:pointer;text-decoration:underline">Close</div>' +
-    '</div>';
-  document.body.appendChild(ov);
-  const close = () => { ov.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
-  document.getElementById('rec-close').onclick = close;
+  if (!panel) { const a = document.createElement('a'); a.href = url; a.download = fname; a.click(); return; }
+  panel.innerHTML =
+    '<video src="' + url + '" controls playsinline style="width:100%;border-radius:8px;background:#000;margin-bottom:4px"></video>' +
+    '<a id="cc-dl" href="' + url + '" download="' + fname + '" class="cc-btn cc-btn-primary" style="text-decoration:none">\u2B07 Download</a>' +
+    (canShareFile ? '<button id="cc-share" class="cc-btn">\uD83D\uDCF2 Share</button>' : '') +
+    '<button id="cc-new" class="cc-btn cc-ghost">New clip</button>';
   if (canShareFile) {
-    document.getElementById('rec-share').onclick = async () => {
+    panel.querySelector('#cc-share').onclick = async function () {
       try { await navigator.share({ files:[file], title:'Sudden Death Chess', text:'My Sudden Death Chess clip' }); } catch(e) {}
     };
   }
+  panel.querySelector('#cc-new').onclick = function () { try { URL.revokeObjectURL(url); } catch(e) {} ensureContentPanel(true); };
 }
 
 // Live on-site verdict effects -- identical look to the recorded reel.
@@ -2761,15 +2911,53 @@ function recTeardownAudio() {
   ['aSrc','comp','makeup','gate','analyser'].forEach(k => { try { if (n[k]) n[k].disconnect(); } catch (e) {} });
 }
 
-function ensureRecordButton() {
-  if (document.getElementById('rec-btn')) return;
-  const screen = document.getElementById('s-game'); if (!screen) return;
-  const btn = document.createElement('button');
-  btn.id = 'rec-btn';
-  btn.textContent = '🔴 Create Content';
-  btn.style.cssText = 'position:fixed;bottom:18px;right:16px;z-index:1500;background:rgba(225,29,46,0.15);border:1px solid rgba(225,29,46,0.5);color:#E11D2E;padding:9px 14px;border-radius:30px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:1px;cursor:pointer;backdrop-filter:blur(6px)';
-  btn.onclick = () => { if (REC.active) stopRecording(btn); else startRecording(btn); };
-  screen.appendChild(btn);
+function ccInjectStyle() {
+  if (document.getElementById('cc-style')) return;
+  const st = document.createElement('style'); st.id = 'cc-style';
+  st.textContent =
+    "#cc-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px;}" +
+    "#cc-panel .cc-seg{display:flex;gap:4px;background:#0E1116;border:1px solid var(--border,#2A2F37);border-radius:8px;padding:3px;}" +
+    "#cc-panel .cc-seg button{flex:1;background:none;border:none;color:#8B92A0;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;padding:7px 2px;border-radius:6px;cursor:pointer;text-transform:uppercase;}" +
+    "#cc-panel .cc-seg button.on{background:#FF7A1A;color:#0E1116;font-weight:700;}" +
+    "#cc-panel .cc-tog{display:flex;align-items:center;justify-content:space-between;background:#0E1116;border:1px solid var(--border,#2A2F37);border-radius:8px;padding:8px 10px;}" +
+    "#cc-panel .cc-tog span{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:#C8CDD6;text-transform:uppercase;}" +
+    "#cc-panel .cc-sw{width:38px;height:21px;border-radius:11px;background:#3A3F47;border:none;position:relative;cursor:pointer;flex:none;transition:background .2s;}" +
+    "#cc-panel .cc-sw::after{content:'';position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .2s;}" +
+    "#cc-panel .cc-sw.on{background:#34D399;}#cc-panel .cc-sw.on::after{left:19px;}" +
+    "#cc-panel .cc-btn{display:block;width:100%;box-sizing:border-box;border:1px solid var(--border,#2A2F37);background:#191D24;color:#F5F1EA;border-radius:8px;padding:11px;font-family:'Antonio',sans-serif;font-weight:700;font-size:15px;letter-spacing:1px;cursor:pointer;text-align:center;}" +
+    "#cc-panel .cc-btn-primary{background:rgba(225,29,46,0.15);border-color:rgba(225,29,46,0.5);color:#E11D2E;}" +
+    "#cc-panel .cc-btn.cc-rec{background:#E11D2E;border-color:#E11D2E;color:#fff;}" +
+    "#cc-panel .cc-ghost{background:none;color:#8B92A0;}" +
+    "#cc-panel video{display:block;}";
+  document.head.appendChild(st);
+}
+
+function ensureContentPanel(rebuild) {
+  ccInjectStyle();
+  const panel = document.getElementById('cc-panel'); if (!panel) return;
+  if (REC.active && !rebuild) return;
+  if (REC.format === undefined) REC.format = 'reels';
+  if (REC.useCam === undefined) REC.useCam = true;
+  if (REC.useMic === undefined) REC.useMic = true;
+  panel.innerHTML =
+    '<div class="cc-seg" id="cc-fmt">' +
+      '<button data-fmt="reels"' + (REC.format === 'reels' ? ' class="on"' : '') + '>Reels 9:16</button>' +
+      '<button data-fmt="desktop"' + (REC.format === 'desktop' ? ' class="on"' : '') + '>Desktop</button>' +
+    '</div>' +
+    '<div class="cc-tog"><span>Camera</span><button class="cc-sw' + (REC.useCam ? ' on' : '') + '" id="cc-cam"></button></div>' +
+    '<div class="cc-tog"><span>Mic</span><button class="cc-sw' + (REC.useMic ? ' on' : '') + '" id="cc-mic"></button></div>' +
+    '<button class="cc-btn cc-btn-primary" id="cc-go">\u25CF Create Content</button>';
+  panel.querySelectorAll('#cc-fmt button').forEach(function (b) {
+    b.onclick = function () {
+      REC.format = b.getAttribute('data-fmt');
+      panel.querySelectorAll('#cc-fmt button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+    };
+  });
+  const cam = panel.querySelector('#cc-cam'); cam.onclick = function () { REC.useCam = !REC.useCam; cam.classList.toggle('on', REC.useCam); };
+  const mic = panel.querySelector('#cc-mic'); mic.onclick = function () { REC.useMic = !REC.useMic; mic.classList.toggle('on', REC.useMic); };
+  const go = panel.querySelector('#cc-go');
+  go.onclick = function () { if (REC.active) stopRecording(go); else startRecording(go); };
 }
 
 document.getElementById('btn-rematch').addEventListener('click', () => {
