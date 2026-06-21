@@ -58,7 +58,8 @@ router.get('/:username/games', (req, res) => {
             id: g.id, date: g.ended_at, color: iAmWhite ? 'white' : 'black',
             opponent: oppName || 'Opponent', opponentRating: oppRating,
             result, ratingBefore: myRatingBefore, ratingAfter, delta: myDelta,
-            endReason: g.end_reason, durationSecs: g.duration_secs
+            endReason: g.end_reason, durationSecs: g.duration_secs,
+            moves: (function(){ try { return JSON.parse(g.moves || '[]'); } catch(e){ return []; } })()
           };
         });
         res.json(games);

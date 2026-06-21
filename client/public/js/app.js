@@ -832,11 +832,110 @@ async function showProfile() {
   await loadProfileGames(u.username);
 }
 
+function replayStyle() {
+  if (document.getElementById('rp-style')) return;
+  const st = document.createElement('style'); st.id = 'rp-style';
+  st.textContent =
+    "#rp-bg{position:fixed;inset:0;z-index:1600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,12,16,.88);backdrop-filter:blur(5px);animation:rpFade .3s ease;}" +
+    "@keyframes rpFade{from{opacity:0}to{opacity:1}}" +
+    "#rp-card{width:min(420px,96vw);background:#191D24;border:1px solid #2A2F37;border-radius:16px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.6);}" +
+    "#rp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}" +
+    "#rp-title{font-family:'Antonio',sans-serif;font-weight:700;font-size:18px;color:#F5F1EA;}" +
+    "#rp-x{width:30px;height:30px;border:none;border-radius:50%;background:rgba(255,255,255,.08);color:#F5F1EA;font-size:19px;cursor:pointer;}" +
+    "#rp-board{width:100%;aspect-ratio:1/1;display:grid;grid-template-columns:repeat(8,1fr);border-radius:8px;overflow:hidden;border:1px solid #2A2F37;}" +
+    ".rp-sq{position:relative;display:flex;align-items:center;justify-content:center;}" +
+    ".rp-light{background:#E8D7B5;}.rp-dark{background:#3A2E26;}" +
+    ".rp-last::before{content:'';position:absolute;inset:0;background:rgba(255,122,26,0.30);}" +
+    ".rp-piece{width:84%;height:84%;position:relative;z-index:1;}" +
+    "#rp-status{text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;color:#C8CDD6;margin:12px 0 8px;min-height:14px;}" +
+    "#rp-ctrl{display:flex;gap:6px;justify-content:center;}" +
+    "#rp-ctrl button{flex:1;background:#0E1116;border:1px solid #2A2F37;color:#F5F1EA;border-radius:8px;padding:10px 0;font-size:14px;cursor:pointer;}" +
+    "#rp-ctrl button:hover{border-color:#FF7A1A;}" +
+    "#rp-ctrl button.rp-play{flex:1.6;background:#FF7A1A;border-color:#FF7A1A;color:#0E1116;font-family:'Antonio',sans-serif;font-weight:700;letter-spacing:1px;}";
+  document.head.appendChild(st);
+}
+
+function rpDrawBoard(boardEl, fen, flipped, from, to) {
+  let c; try { c = new Chess(fen); } catch (e) { return; }
+  let html = '';
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const file = flipped ? 7 - f : f, rank = flipped ? r + 1 : 8 - r;
+    const sq = 'abcdefgh'[file] + rank;
+    const light = (file + rank) % 2 === 0;
+    const last = (sq === from || sq === to) ? ' rp-last' : '';
+    const p = c.get(sq);
+    const piece = p ? '<img class="rp-piece" draggable="false" src="' + PIECE_IMGS_URLS[(p.color === 'w' ? 'w' : 'b') + p.type.toUpperCase()] + '">' : '';
+    html += '<div class="rp-sq ' + (light ? 'rp-light' : 'rp-dark') + last + '">' + piece + '</div>';
+  }
+  boardEl.innerHTML = html;
+}
+
+function openReplay(game) {
+  if (!game || !game.moves || !game.moves.length) { toast('No moves were saved for this game.'); return; }
+  replayStyle();
+  let rc; try { rc = new Chess(); } catch (e) { toast('Replay unavailable on this browser.'); return; }
+  const positions = [{ fen: rc.fen(), from: null, to: null, san: null }];
+  for (const mv of game.moves) {
+    let ap = null;
+    if (mv.san) { try { ap = rc.move(mv.san); } catch (e) { ap = null; } }
+    if (!ap && mv.from && mv.to) { try { ap = rc.move({ from: mv.from, to: mv.to, promotion: 'q' }); } catch (e) {} }
+    if (!ap) break;
+    positions.push({ fen: rc.fen(), from: ap.from, to: ap.to, san: ap.san });
+  }
+  const flipped = game.color === 'black';
+  const last = positions.length - 1;
+  let idx = 0, timer = null;
+
+  const old = document.getElementById('rp-bg'); if (old) old.remove();
+  const bg = document.createElement('div'); bg.id = 'rp-bg';
+  bg.innerHTML =
+    '<div id="rp-card">' +
+      '<div id="rp-head"><div id="rp-title">vs ' + (game.opponent || 'Opponent') + '</div><button id="rp-x" aria-label="Close">\u00d7</button></div>' +
+      '<div id="rp-board"></div>' +
+      '<div id="rp-status"></div>' +
+      '<div id="rp-ctrl">' +
+        '<button id="rp-first" title="Start">\u23EE</button>' +
+        '<button id="rp-prev" title="Back">\u25C0</button>' +
+        '<button id="rp-play" class="rp-play">\u25B6 Play</button>' +
+        '<button id="rp-next" title="Forward">\u25B6</button>' +
+        '<button id="rp-last" title="End">\u23ED</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(bg);
+  const boardEl = bg.querySelector('#rp-board');
+  const statusEl = bg.querySelector('#rp-status');
+  const playBtn = bg.querySelector('#rp-play');
+
+  function render() {
+    const pos = positions[idx];
+    rpDrawBoard(boardEl, pos.fen, flipped, pos.from, pos.to);
+    statusEl.textContent = idx === 0 ? 'Start position' : ('Move ' + idx + ' / ' + last + (pos.san ? '   \u00b7   ' + pos.san : ''));
+  }
+  function stop() { if (timer) { clearInterval(timer); timer = null; } playBtn.innerHTML = '\u25B6 Play'; }
+  function go(i) { idx = Math.max(0, Math.min(last, i)); render(); if (idx >= last) stop(); }
+  function close() { stop(); bg.remove(); }
+
+  bg.querySelector('#rp-x').onclick = close;
+  bg.querySelector('#rp-first').onclick = function () { stop(); go(0); };
+  bg.querySelector('#rp-prev').onclick = function () { stop(); go(idx - 1); };
+  bg.querySelector('#rp-next').onclick = function () { stop(); go(idx + 1); };
+  bg.querySelector('#rp-last').onclick = function () { stop(); go(last); };
+  playBtn.onclick = function () {
+    if (timer) { stop(); return; }
+    if (idx >= last) idx = 0;
+    playBtn.innerHTML = 'Pause';
+    timer = setInterval(function () { if (idx >= last) { stop(); return; } go(idx + 1); }, 850);
+  };
+  bg.onclick = function (e) { if (e.target === bg) close(); };
+  render();
+}
+
 async function loadProfileGames(username) {
   const listEl = document.getElementById('games-list');
   try {
     const res = await fetch('/api/users/' + encodeURIComponent(username) + '/games?limit=30');
     const games = res.ok ? await res.json() : [];
+    S.profileGames = games;
     if (games.length) {
       const curve = [games[0].ratingBefore];
       games.forEach(g => { if (typeof g.ratingAfter === 'number') curve.push(g.ratingAfter); });
@@ -853,7 +952,7 @@ async function loadProfileGames(username) {
           const tag = draw ? 'DRAW' : (win ? 'WIN' : 'LOSS');
           const sign = (g.delta >= 0 ? '+' : '');
           const when = g.date ? String(g.date).split(' ')[0] : '';
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-left:3px solid ' + col + ';background:rgba(255,255,255,0.02);border-radius:4px;margin-bottom:6px;">' +
+          return '<div data-gid="' + g.id + '" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-left:3px solid ' + col + ';background:rgba(255,255,255,0.02);border-radius:4px;margin-bottom:6px;">' +
             '<div style="display:flex;flex-direction:column;gap:2px">' +
               '<span style="font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:2px;color:' + col + '">' + tag + '</span>' +
               '<span style="font-size:13px;color:#F5F1EA">vs ' + (g.opponent || 'Opponent') + ' <span style="color:#52525B">(' + (g.opponentRating || '?') + ')</span></span>' +
@@ -866,6 +965,7 @@ async function loadProfileGames(username) {
             '</div>' +
           '</div>';
         }).join('');
+        listEl.onclick = function (e) { const row = e.target.closest('[data-gid]'); if (!row) return; const g = (S.profileGames || []).find(x => String(x.id) === row.getAttribute('data-gid')); if (g) openReplay(g); };
       }
     }
   } catch (e) {
