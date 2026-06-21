@@ -377,7 +377,7 @@ body {
 .board {
   display:grid;
   grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
-  width:min(64vw,580px); height:min(64vw,580px);
+  width:min(64vw, 580px, 70vh); height:min(64vw, 580px, 70vh);
   border:2px solid var(--border2);
   transition: box-shadow .35s ease;
   /* ambient: slow white breathing pulse around the edges */
@@ -1078,8 +1078,9 @@ body {
   .nav-stats { display:none; }
 
   .game-body { flex-direction:column; overflow:visible; height:auto; }
-  .g-center { order:-1; flex:none; padding:12px 18px 26px; overflow:visible; min-height:0; }
+  .g-center { order:-1; flex:none; padding:66px 18px 26px; overflow:visible; min-height:0; }
   .board { width:min(92vw,520px); height:min(92vw,520px); }
+  .timehud { width:min(86vw,520px); }
 
   .g-left, .g-right {
     width:100%; flex:none;
