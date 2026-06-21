@@ -25,6 +25,7 @@ function handleConnection(ws) {
     switch (msg.type) {
       case 'auth':       return doAuth(ws, msg);
       case 'find_match': return doFindMatch(ws);
+      case 'play_bot':   return doPlayBot(ws);
       case 'cancel':     return doCancel(ws);
       case 'move':       return doMove(ws, msg);
       case 'checkmate':  return doCheckmate(ws, msg);
@@ -93,6 +94,13 @@ function doGuestAuth(ws) {
     wins: 0, losses: 0, games: 0, no_ads: false, guest: true
   }});
   console.log('[GUEST] joined:', name);
+}
+
+function doPlayBot(ws) {
+  if (!ws.player) return send(ws, { type: 'error', message: 'Not authenticated.' });
+  if (ws.botTimer) { clearTimeout(ws.botTimer); ws.botTimer = null; }
+  removeFromQueue(ws);
+  startBotGame(ws);
 }
 
 function doFindMatch(ws) {

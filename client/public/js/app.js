@@ -740,6 +740,27 @@ document.getElementById('btn-find').addEventListener('click', () => {
   searching = true;
 });
 
+(function () {
+  if (!document.getElementById('bot-btn-style')) {
+    const st = document.createElement('style'); st.id = 'bot-btn-style';
+    st.textContent = ".bot-btn{background:transparent;border:1px solid rgba(245,197,24,0.55);color:#F5C518;font-family:'Antonio',sans-serif;font-weight:700;font-size:17px;letter-spacing:2px;text-transform:uppercase;padding:11px 26px;border-radius:8px;cursor:pointer;transition:all .2s;}.bot-btn:hover{background:rgba(245,197,24,0.12);box-shadow:0 0 24px rgba(245,197,24,.25);}";
+    document.head.appendChild(st);
+  }
+  const bb = document.getElementById('btn-bot');
+  if (bb) bb.addEventListener('click', function () {
+    if (!S.user) return toast('Please log in first.');
+    if (!S.user.is_premium) { showPremium(); return; }
+    if (searching) {
+      try { wsSend({ type: 'cancel' }); } catch (e) {}
+      const fb = document.getElementById('btn-find');
+      if (fb) { fb.classList.remove('searching'); fb.textContent = 'FIND MATCH'; }
+      searching = false;
+    }
+    wsSend({ type: 'play_bot' });
+    document.getElementById('search-status').innerHTML = 'Starting a game vs the computer<span class="dot-anim"></span>';
+  });
+})();
+
 document.getElementById('nav-user-btn').addEventListener('click', showProfile);
 document.getElementById('btn-back-lobby').addEventListener('click', () => show('s-lobby'));
 
