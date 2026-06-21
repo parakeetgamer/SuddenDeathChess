@@ -519,7 +519,7 @@ function showSearchingOverlay() {
   ov.style.cssText = 'position:fixed;inset:0;z-index:870;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(14,17,22,0.92);backdrop-filter:blur(10px)';
   ov.innerHTML = '<div style="width:54px;height:54px;border:4px solid rgba(255,122,26,0.25);border-top-color:#FF7A1A;border-radius:50%;animation:sdcSpin .8s linear infinite"></div>' +
     '<div style="margin-top:26px;font-family:Antonio,sans-serif;font-size:26px;font-weight:700;color:#F5F1EA;letter-spacing:1px">Searching for an opponent<span class="dot-anim"></span></div>' +
-    '<div style="margin-top:8px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:3px;color:#52525B;text-transform:uppercase">Matching you by rating</div>';
+    ((S.user && S.user.guest) ? '' : '<div style="margin-top:8px;font-family:JetBrains Mono,monospace;font-size:11px;letter-spacing:3px;color:#52525B;text-transform:uppercase">Matching you by rating</div>');
   document.body.appendChild(ov);
 }
 function hideSearchingOverlay() {
