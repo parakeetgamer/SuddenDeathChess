@@ -3331,6 +3331,210 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
 // ══════════════════════════════════════════
 // FIRST-VISIT TUTORIAL (logged-out new players)
 // ══════════════════════════════════════════
+// ── Learn Chess: interactive crash course ─────────────────────────────────
+const CB_LESSONS = [
+  { type: 'text', sym: '\u265E', title: 'Chess in 90 Seconds',
+    blurb: 'Two armies face off. Your goal: trap the enemy <strong>King</strong>. Let\u2019s meet your pieces \u2014 you\u2019ll move each one yourself. Tap along!' },
+  { type: 'play', sym: '\u265F', title: 'The Pawn', demo: 'e2',
+    fen: '4k3/8/8/8/8/3p1p2/4P3/4K3 w - - 0 1',
+    blurb: 'Pawns march <strong>forward</strong> one square \u2014 two on their first move \u2014 but they <strong>capture diagonally</strong>. Reach the far side and a pawn becomes a Queen!',
+    hint: 'Tap the pawn to see where it can go.', hint2: 'Tap a glowing square \u2014 forward, or diagonally to capture!',
+    success: 'That\u2019s the pawn: forward to move, diagonal to capture.' },
+  { type: 'play', sym: '\u265E', title: 'The Knight', demo: 'e4',
+    fen: '4k3/8/8/8/4N3/8/8/4K3 w - - 0 1',
+    blurb: 'The Knight leaps in an <strong>L-shape</strong> and is the <strong>only piece that jumps over others</strong>. Tricky to defend against!',
+    hint: 'Tap the knight to reveal its leaps.', hint2: 'Every glowing square is an L away \u2014 tap one!',
+    success: 'Eight L-shaped leaps \u2014 that\u2019s the knight.' },
+  { type: 'play', sym: '\u265D', title: 'The Bishop', demo: 'e4',
+    fen: '7k/8/8/8/4B3/8/8/K7 w - - 0 1',
+    blurb: 'Bishops glide <strong>any distance along diagonals</strong>. Each one sticks to a single color for the whole game \u2014 keep both and you cover everything.',
+    hint: 'Tap the bishop to see its diagonals.', hint2: 'Slide it along any diagonal \u2014 tap a square!',
+    success: 'Diagonals as far as you like \u2014 the bishop.' },
+  { type: 'play', sym: '\u265C', title: 'The Rook', demo: 'e4',
+    fen: '7k/8/8/8/4R3/8/8/K7 w - - 0 1',
+    blurb: 'Rooks blast in <strong>straight lines</strong> \u2014 up, down, and across. Powerful in the open, and the heavyweight of most endgames.',
+    hint: 'Tap the rook to see its range.', hint2: 'Send it down any rank or file \u2014 tap a square!',
+    success: 'Straight lines in every direction \u2014 the rook.' },
+  { type: 'play', sym: '\u265B', title: 'The Queen', demo: 'e4',
+    fen: '7k/8/8/8/4Q3/8/8/K7 w - - 0 1',
+    blurb: 'The Queen combines rook <strong>and</strong> bishop \u2014 straight lines <strong>and</strong> diagonals. The <strong>most powerful piece</strong> on the board. Guard her well!',
+    hint: 'Tap the queen \u2014 watch the board light up.', hint2: 'She goes almost anywhere \u2014 tap a square!',
+    success: 'Lines and diagonals both \u2014 the mighty queen.' },
+  { type: 'play', sym: '\u265A', title: 'The King', demo: 'e4',
+    fen: '7k/8/8/8/4K3/8/8/8 w - - 0 1',
+    blurb: 'The King steps <strong>one square in any direction</strong>. He\u2019s not strong \u2014 but if he\u2019s ever trapped, you lose. <strong>Protect him at all costs.</strong>',
+    hint: 'Tap the king to see his steps.', hint2: 'One square any way \u2014 tap a glowing square!',
+    success: 'One careful step at a time \u2014 the king.' },
+  { type: 'play', sym: '\u26A0\uFE0F', title: 'Check!', demo: 'e1',
+    fen: '4q2k/8/8/8/8/8/8/4K3 w - - 0 1',
+    blurb: 'When your King is under attack, that\u2019s <strong>check</strong> \u2014 and you <strong>must</strong> respond: move away, block the attacker, or capture it. The black Queen has your king in its sights!',
+    hint: 'Tap your king \u2014 only the safe squares will glow.', hint2: 'Step the king to safety \u2014 tap a glowing square!',
+    success: 'Out of check! Notice only the safe moves were allowed.' },
+  { type: 'play', sym: '\uD83C\uDFC6', title: 'Checkmate \u2014 You Win!', demo: 'e1', mate: true,
+    fen: '6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1',
+    blurb: 'A check with <strong>no escape</strong> is <strong>checkmate</strong> \u2014 that\u2019s how you win. The black king is boxed in by its own pawns. Send your rook to the <strong>back rank</strong> to finish it!',
+    hint: 'Tap your rook, then send it up to e8.', hint2: 'Deliver the blow \u2014 rook to the back rank!',
+    success: 'CHECKMATE \u2014 the king can\u2019t escape. That\u2019s a win!' },
+  { type: 'play', sym: '\uD83C\uDFF0', title: 'Castling', demo: 'e1',
+    fen: 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1',
+    blurb: 'Castling is the King\u2019s special move: he hops <strong>two squares toward a rook</strong>, and that rook jumps to his other side \u2014 tucking the king to safety in one move. Short side = <strong>kingside</strong>, long side = <strong>queenside</strong>.',
+    hint: 'Tap your king \u2014 the castling squares glow too.', hint2: 'Tap two squares to the right (g1) to castle kingside!',
+    success: 'Castled! King safe, rook activated \u2014 do this early most games.' },
+  { type: 'text', sym: '\u2694\uFE0F', title: 'You\u2019re Ready!',
+    blurb: 'That\u2019s every piece, check, checkmate, and castling. Now the twist that makes this <strong>Sudden Death Chess</strong>: a single blunder ends the game on the spot. Play sharp \u2014 and have fun!' },
+];
+
+function cbStyle() {
+  if (document.getElementById('cb-style')) return;
+  const st = document.createElement('style'); st.id = 'cb-style';
+  st.textContent =
+    "#cb-bg{position:fixed;inset:0;z-index:1600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(8,10,14,.92);backdrop-filter:blur(6px);animation:cbFade .3s ease;overflow-y:auto;}" +
+    "@keyframes cbFade{from{opacity:0}to{opacity:1}}" +
+    "#cb-card{width:min(440px,96vw);background:linear-gradient(180deg,#1a1f27,#15181e);border:1px solid #2A2F37;border-radius:20px;padding:20px 22px 18px;box-shadow:0 28px 70px rgba(0,0,0,.7);position:relative;animation:cbIn .4s cubic-bezier(.18,.9,.32,1.4);}" +
+    "@keyframes cbIn{from{opacity:0;transform:translateY(18px) scale(.96);}to{opacity:1;transform:none;}}" +
+    "#cb-close{position:absolute;top:12px;right:12px;width:30px;height:30px;border:none;border-radius:50%;background:rgba(255,255,255,.07);color:#B8BCC4;font-size:18px;cursor:pointer;z-index:2;}" +
+    "#cb-close:hover{background:rgba(255,255,255,.15);}" +
+    "#cb-sym{font-size:34px;text-align:center;line-height:1;margin-bottom:6px;}" +
+    "#cb-title{font-family:'Antonio',sans-serif;font-weight:700;font-size:25px;letter-spacing:.5px;color:#F5F1EA;text-align:center;margin-bottom:12px;}" +
+    "#cb-board{width:min(360px,82vw);aspect-ratio:1;margin:0 auto 12px;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:8px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.5);}" +
+    ".cb-sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;}" +
+    ".cb-l{background:#EBECD0;}.cb-d{background:#739552;}" +
+    ".cb-sq img{width:84%;height:84%;pointer-events:none;}" +
+    ".cb-sel{box-shadow:inset 0 0 0 4px #F5C518;}" +
+    ".cb-last{background:#F5E08A !important;}" +
+    ".cb-dot::after{content:'';position:absolute;width:30%;height:30%;border-radius:50%;background:rgba(40,40,40,.4);}" +
+    ".cb-cap{position:absolute;inset:6%;border:5px solid rgba(225,29,46,.7);border-radius:50%;}" +
+    ".cb-pulse{animation:cbPulse 1.1s ease-in-out infinite;}" +
+    "@keyframes cbPulse{0%,100%{box-shadow:inset 0 0 0 0 rgba(245,197,24,0);}50%{box-shadow:inset 0 0 0 5px rgba(245,197,24,.95);}}" +
+    "#cb-blurb{font-size:14px;line-height:1.55;color:#C4C8D0;text-align:center;margin-bottom:8px;}#cb-blurb strong{color:#F5C518;}" +
+    "#cb-hint{font-size:12.5px;line-height:1.4;color:#7BC86C;text-align:center;min-height:32px;font-family:'JetBrains Mono',monospace;margin-bottom:10px;}#cb-hint strong{color:#F5F1EA;}" +
+    "#cb-prog{display:flex;gap:6px;justify-content:center;margin-bottom:14px;flex-wrap:wrap;}" +
+    ".cb-pd{width:7px;height:7px;border-radius:50%;background:#3A3F47;transition:.25s;}.cb-pd.on{background:#E8722A;width:20px;border-radius:4px;}" +
+    "#cb-nav{display:flex;gap:10px;align-items:center;}" +
+    "#cb-back{flex:none;background:none;border:none;color:#6B7280;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;padding:10px;}" +
+    "#cb-back:disabled{opacity:.3;cursor:default;}" +
+    "#cb-next{flex:1;background:#3A3F47;border:none;border-radius:10px;color:#fff;font-family:'Antonio',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px;padding:13px;cursor:pointer;transition:background .2s;}" +
+    "#cb-next.cb-ready{background:#E8722A;box-shadow:0 0 24px rgba(232,114,42,.5);animation:cbReady 1.4s ease-in-out infinite;}" +
+    "@keyframes cbReady{0%,100%{transform:scale(1);}50%{transform:scale(1.02);}}" +
+    "#cb-next:hover{filter:brightness(1.1);}" +
+    "#cb-burst{position:absolute;top:46%;left:50%;transform:translate(-50%,-50%);font-family:'Antonio',sans-serif;font-weight:700;font-size:30px;color:#FFD84D;text-shadow:0 3px 16px rgba(0,0,0,.8);pointer-events:none;animation:cbBurst 1.1s cubic-bezier(.18,.9,.32,1.4) forwards;z-index:3;text-align:center;}" +
+    "@keyframes cbBurst{0%{opacity:0;transform:translate(-50%,-50%) scale(.4);}25%{opacity:1;transform:translate(-50%,-50%) scale(1.15);}75%{opacity:1;}100%{opacity:0;transform:translate(-50%,-60%) scale(1);}}" +
+    ".cb-text-blurb{font-size:16px;line-height:1.65;color:#C4C8D0;text-align:center;padding:14px 6px 22px;}.cb-text-blurb strong{color:#F5C518;}";
+  document.head.appendChild(st);
+}
+
+function cbRenderBoard(chess, sel, dots, lastTo) {
+  const board = chess.board();
+  let html = '';
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const sqName = 'abcdefgh'[c] + (8 - r);
+      const dark = (r + c) % 2 === 1;
+      const cell = board[r][c];
+      let cls = 'cb-sq ' + (dark ? 'cb-d' : 'cb-l');
+      if (sel === sqName) cls += ' cb-sel';
+      if (lastTo === sqName) cls += ' cb-last';
+      let inner = '';
+      if (cell) inner += '<img src="' + PIECE_IMGS_URLS[cell.color + cell.type.toUpperCase()] + '" draggable="false">';
+      if (dots.indexOf(sqName) >= 0) inner += cell ? '<span class="cb-cap"></span>' : '<span class="cb-dot"></span>';
+      html += '<div class="' + cls + '" data-sq="' + sqName + '">' + inner + '</div>';
+    }
+  }
+  return html;
+}
+
+function cbBurst(card, text) {
+  const b = document.createElement('div'); b.id = 'cb-burst'; b.textContent = text;
+  card.appendChild(b);
+  setTimeout(function () { if (b.parentElement) b.remove(); }, 1100);
+}
+
+function openChessBasics(onExit) {
+  if (typeof Chess === 'undefined') { try { toast('Tutorial unavailable on this browser.'); } catch (e) {} return; }
+  cbStyle();
+  if (document.getElementById('cb-bg')) return;
+  let i = 0;
+  const bg = document.createElement('div'); bg.id = 'cb-bg';
+  const card = document.createElement('div'); card.id = 'cb-card';
+  bg.appendChild(card); document.body.appendChild(bg);
+
+  function closeAll(playNow) {
+    bg.remove();
+    if (playNow && typeof onExit === 'function') onExit();
+  }
+
+  function render() {
+    const L = CB_LESSONS[i];
+    const last = i === CB_LESSONS.length - 1;
+    const prog = CB_LESSONS.map(function (_, k) { return '<span class="cb-pd' + (k === i ? ' on' : '') + '"></span>'; }).join('');
+    const isText = L.type === 'text';
+    card.innerHTML =
+      '<button id="cb-close">\u00d7</button>' +
+      '<div id="cb-sym">' + L.sym + '</div>' +
+      '<div id="cb-title">' + L.title + '</div>' +
+      (isText
+        ? '<div class="cb-text-blurb">' + L.blurb + '</div>'
+        : '<div id="cb-board"></div><div id="cb-blurb">' + L.blurb + '</div><div id="cb-hint">' + L.hint + '</div>') +
+      '<div id="cb-prog">' + prog + '</div>' +
+      '<div id="cb-nav">' +
+        '<button id="cb-back"' + (i === 0 ? ' disabled' : '') + '>BACK</button>' +
+        '<button id="cb-next" class="' + (isText ? 'cb-ready' : '') + '">' + (last ? "LET\u2019S PLAY" : 'NEXT') + '</button>' +
+      '</div>';
+
+    card.querySelector('#cb-close').onclick = function () { closeAll(false); };
+    card.querySelector('#cb-back').onclick = function () { if (i > 0) { i--; render(); } };
+    card.querySelector('#cb-next').onclick = function () { if (last) closeAll(true); else { i++; render(); } };
+
+    if (!isText) setupPlay(L);
+  }
+
+  function setupPlay(L) {
+    const chess = new Chess(L.fen);
+    let sel = null, dots = [], lastTo = null, solved = false;
+    const boardEl = card.querySelector('#cb-board');
+    const hintEl = card.querySelector('#cb-hint');
+    const nextEl = card.querySelector('#cb-next');
+
+    function draw() {
+      boardEl.innerHTML = cbRenderBoard(chess, sel, dots, lastTo);
+      if (!sel && !solved) {
+        const d = boardEl.querySelector('[data-sq="' + L.demo + '"]');
+        if (d) d.classList.add('cb-pulse');
+      }
+    }
+    draw();
+
+    boardEl.onclick = function (e) {
+      if (solved) return;
+      const cellEl = e.target.closest('[data-sq]'); if (!cellEl) return;
+      const sq = cellEl.dataset.sq;
+      if (sel && dots.indexOf(sq) >= 0) {
+        const mv = chess.moves({ verbose: true }).find(function (m) { return m.from === sel && m.to === sq; });
+        chess.move(mv); lastTo = sq; sel = null; dots = [];
+        if (L.mate && !chess.isCheckmate()) {
+          draw();
+          hintEl.innerHTML = 'So close \u2014 that doesn\u2019t trap the king yet. Send the rook all the way to <strong>e8</strong>!';
+          setTimeout(function () { chess.load(L.fen); lastTo = null; draw(); }, 1200);
+          return;
+        }
+        solved = true; draw();
+        cbBurst(card, L.mate ? 'CHECKMATE! \uD83C\uDFC6' : 'Nice! \u26A1');
+        hintEl.innerHTML = L.success;
+        nextEl.classList.add('cb-ready');
+        return;
+      }
+      const piece = chess.get(sq);
+      if (piece && piece.color === 'w') {
+        const ms = chess.moves({ square: sq, verbose: true });
+        if (ms.length) { sel = sq; dots = ms.map(function (m) { return m.to; }); draw(); hintEl.innerHTML = L.hint2; return; }
+      }
+      sel = null; dots = []; draw();
+    };
+  }
+
+  render();
+}
+
 function tutorialStyle() {
   if (document.getElementById('tut-style')) return;
   const st = document.createElement('style'); st.id = 'tut-style';
@@ -3349,6 +3553,8 @@ function tutorialStyle() {
     "#tut-skip{flex:none;background:none;border:none;color:#6B7280;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;padding:8px;}" +
     "#tut-next{flex:1;background:#E8722A;border:none;border-radius:9px;color:#fff;font-family:'Antonio',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px;padding:13px;cursor:pointer;}" +
     "#tut-next:hover{background:#ff8438;}" +
+    "#tut-learn{display:block;width:100%;margin:14px 0 2px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.4);border-radius:9px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.4px;padding:11px;cursor:pointer;transition:background .2s;line-height:1.35;}" +
+    "#tut-learn:hover{background:rgba(245,197,24,.2);}" +
     "@keyframes tutIn{from{opacity:0;transform:translateY(16px) scale(.95);}to{opacity:1;transform:translateY(0) scale(1);}}" +
     "@keyframes tutFade{from{opacity:0;}to{opacity:1;}}";
   document.head.appendChild(st);
@@ -3390,6 +3596,7 @@ function showTutorial() {
       '<div id="tut-title">' + s.title + '</div>' +
       '<div id="tut-body">' + s.body + '</div>' +
       '<div id="tut-dots">' + dots + '</div>' +
+      '<button id="tut-learn">\u265F New to chess? Take the 2-min crash course</button>' +
       '<div id="tut-btns">' +
         (last ? '' : '<button id="tut-skip">SKIP</button>') +
         '<button id="tut-next">' + (last ? 'PLAY' : 'NEXT') + '</button>' +
@@ -3397,6 +3604,8 @@ function showTutorial() {
     const skip = card.querySelector('#tut-skip');
     if (skip) skip.onclick = finish;
     card.querySelector('#tut-next').onclick = function () { if (last) finish(); else { i++; render(); } };
+    const learn = card.querySelector('#tut-learn');
+    if (learn) learn.onclick = function () { openChessBasics(finish); };
   };
   render();
 }
