@@ -2822,7 +2822,7 @@ function recDrawFrame() {
 
   ctx.fillStyle = 'rgba(255,122,26,0.16)'; ctx.fillRect(0, H-52, W, 52);
   ctx.fillStyle = '#FF7A1A'; ctx.font = '700 20px JetBrains Mono, monospace';
-  ctx.fillText('\u25B6 suddendeathchess.up.railway.app', W/2, H-26);
+  ctx.fillText('\u25B6 suddendeathchess.com', W/2, H-26);
 
   const eg = ctx.createRadialGradient(W/2, H/2, H*0.30, W/2, H/2, H*0.62);
   eg.addColorStop(0, 'rgba(255,122,26,0)');
