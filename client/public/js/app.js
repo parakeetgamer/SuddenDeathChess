@@ -1224,6 +1224,7 @@ function buildBoardOnce() {
       sq.className = 'sq ' + ((row+col)%2===0?'light':'dark');
       sq.dataset.sq = squareName;
       sq.addEventListener('click', onSqClick);
+      sq.addEventListener('pointerdown', onSqPointerDown);
       el.appendChild(sq);
     }
   }
@@ -1239,6 +1240,7 @@ function renderBoard() {
 
   const boardEl = document.getElementById('board');
   const squares = boardEl.children;
+  boardEl.classList.toggle('my-turn', !!(S.chess && !S.gameOver && !S.judging && S.myColor && S.chess.turn() === S.myColor[0]));
 
   for (let i = 0; i < squares.length; i++) {
     const sq = squares[i];
@@ -1278,7 +1280,95 @@ function renderBoard() {
   }
 }
 
+// ── Drag-to-move (your turn only) ─────────────────────────────────────────
+let dragState = null;
+function ensureDragStyle() {
+  if (document.getElementById('drag-style')) return;
+  const st = document.createElement('style'); st.id = 'drag-style';
+  st.textContent =
+    ".piece{touch-action:none;}" +
+    ".board.my-turn .sq .piece{cursor:grab;}" +
+    "body.dragging-piece, body.dragging-piece *{cursor:grabbing !important;}" +
+    ".drag-ghost{position:fixed;pointer-events:none;z-index:2000;transform:translate(-50%,-50%);filter:drop-shadow(0 7px 11px rgba(0,0,0,.45));will-change:left,top;}" +
+    ".sq.drag-over{box-shadow:inset 0 0 0 4px rgba(245,241,234,.6);}";
+  document.head.appendChild(st);
+}
+function onSqPointerDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;     // left button only
+  if (!S.chess || S.gameOver || S.judging) return;
+  if (S.chess.turn() !== S.myColor[0]) return;                 // your turn only
+  const sqEl = e.currentTarget;
+  const from = sqEl.dataset.sq;
+  const piece = S.chess.get(from);
+  if (!piece || piece.color !== S.myColor[0]) return;          // only your own pieces
+  ensureDragStyle();
+  S.selected = from;
+  S.legalMoves = S.chess.moves({ square: from, verbose: true });
+  renderBoard();
+  dragState = { from, sqEl, moved: false, startX: e.clientX, startY: e.clientY, ghost: null, overEl: null };
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', onDragUp);
+  window.addEventListener('pointercancel', onDragUp);
+  e.preventDefault();
+}
+function onDragMove(e) {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.startX, dy = e.clientY - dragState.startY;
+  if (!dragState.moved && Math.abs(dx) + Math.abs(dy) > 6) {
+    dragState.moved = true;
+    const img = dragState.sqEl.querySelector('img.piece');
+    if (img) {
+      const r = img.getBoundingClientRect();
+      const g = img.cloneNode(true);
+      g.className = 'drag-ghost';
+      g.style.width = r.width + 'px'; g.style.height = r.height + 'px';
+      g.style.left = e.clientX + 'px'; g.style.top = e.clientY + 'px';
+      document.body.appendChild(g);
+      dragState.ghost = g;
+      img.style.opacity = '0.28';
+      document.body.classList.add('dragging-piece');
+    }
+  }
+  if (dragState.moved && dragState.ghost) {
+    dragState.ghost.style.left = e.clientX + 'px';
+    dragState.ghost.style.top = e.clientY + 'px';
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const overSq = el && el.closest ? el.closest('#board [data-sq]') : null;
+    if (dragState.overEl && dragState.overEl !== overSq) dragState.overEl.classList.remove('drag-over');
+    if (overSq && S.legalMoves.some(m => m.to === overSq.dataset.sq)) {
+      overSq.classList.add('drag-over'); dragState.overEl = overSq;
+    } else { dragState.overEl = null; }
+  }
+}
+function onDragUp(e) {
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', onDragUp);
+  window.removeEventListener('pointercancel', onDragUp);
+  const ds = dragState; dragState = null;
+  if (!ds) return;
+  if (ds.overEl) ds.overEl.classList.remove('drag-over');
+  const origImg = ds.sqEl.querySelector('img.piece'); if (origImg) origImg.style.opacity = '';
+  if (ds.ghost) ds.ghost.remove();
+  document.body.classList.remove('dragging-piece');
+  if (e.type === 'pointercancel' || !ds.moved) {   // cancelled, or a tap -> no drag move
+    if (ds.moved) renderBoard();                  // keep selection if it was a real drag
+    return;
+  }
+  S._dragMoved = true;                   // suppress the trailing click
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const overSq = el && el.closest ? el.closest('#board [data-sq]') : null;
+  const to = overSq ? overSq.dataset.sq : null;
+  if (to && S.selected && S.legalMoves.some(m => m.to === to)) {
+    const from = S.selected;
+    S.selected = null; S.legalMoves = [];
+    executeMyMove(from, to).then(() => renderBoard());
+    renderBoard();
+  } else {
+    renderBoard();                       // illegal drop -> keep piece selected
+  }
+}
 async function onSqClick(e) {
+  if (S._dragMoved) { S._dragMoved = false; return; }
   if (!S.chess || S.gameOver || S.judging) return;
   if (S.chess.turn() !== S.myColor[0]) return; // not my turn
 
