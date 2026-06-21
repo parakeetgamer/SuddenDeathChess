@@ -815,7 +815,7 @@ function openBotPicker() {
 (function () {
   if (!document.getElementById('bot-btn-style')) {
     const st = document.createElement('style'); st.id = 'bot-btn-style';
-    st.textContent = ".bot-btn{position:fixed;left:26px;bottom:26px;z-index:60;display:flex;align-items:center;gap:9px;background:linear-gradient(135deg,#1b1f27,#262b34);border:1px solid rgba(245,197,24,0.5);color:#F5C518;font-family:'Antonio',sans-serif;font-weight:700;font-size:16px;letter-spacing:1.5px;text-transform:uppercase;padding:13px 22px;border-radius:12px;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:transform .18s,border-color .18s,box-shadow .18s;}.bot-btn::before{content:'\\265E';font-size:21px;line-height:1;}.bot-btn:hover{border-color:#F5C518;box-shadow:0 0 32px rgba(245,197,24,.32);transform:translateY(-2px);}";
+    st.textContent = ".bot-btn{position:fixed;left:26px;bottom:26px;z-index:60;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#F5C518,#FF9E1A);border:none;color:#1a1205;font-family:'Antonio',sans-serif;font-weight:700;font-size:18px;letter-spacing:1.5px;text-transform:uppercase;padding:15px 26px;border-radius:13px;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:botPulse 2.6s ease-in-out infinite;transition:transform .18s,box-shadow .18s;}@keyframes botPulse{0%,100%{box-shadow:0 10px 30px rgba(0,0,0,.45),0 0 0 0 rgba(245,197,24,.55);}50%{box-shadow:0 10px 30px rgba(0,0,0,.45),0 0 0 9px rgba(245,197,24,0);}}@media(max-width:820px){.bot-btn{left:14px;bottom:14px;padding:12px 18px;font-size:15px;}}.bot-btn::before{content:'\\265E';font-size:21px;line-height:1;}.bot-btn:hover{transform:translateY(-2px);box-shadow:0 14px 36px rgba(0,0,0,.5),0 0 30px rgba(245,197,24,.5);}";
     document.head.appendChild(st);
   }
   const bb = document.getElementById('btn-bot');
@@ -1240,7 +1240,10 @@ function renderBoard() {
 
   const boardEl = document.getElementById('board');
   const squares = boardEl.children;
-  boardEl.classList.toggle('my-turn', !!(S.chess && !S.gameOver && !S.judging && S.myColor && S.chess.turn() === S.myColor[0]));
+  ensureUxStyle();
+  const _myTurn = !!(S.chess && !S.gameOver && !S.judging && S.myColor && S.chess.turn() === S.myColor[0]);
+  boardEl.classList.toggle('my-turn', _myTurn);
+  const _movable = _myTurn ? new Set(S.chess.moves({ verbose: true }).map(m => m.from)) : null;
 
   for (let i = 0; i < squares.length; i++) {
     const sq = squares[i];
@@ -1255,6 +1258,7 @@ function renderBoard() {
     sq.classList.toggle('ssel', isSel);
     sq.classList.toggle('sdot', isLegal && !hasCapture);
     sq.classList.toggle('scap', !!hasCapture);
+    sq.classList.toggle('movable', !!(_movable && _movable.has(squareName)));
 
     const p = S.chess.get(squareName);
     const wantKey = p ? (p.color === 'w' ? 'w' : 'b') + p.type.toUpperCase() : null;
@@ -1359,13 +1363,73 @@ function onDragUp(e) {
   const overSq = el && el.closest ? el.closest('#board [data-sq]') : null;
   const to = overSq ? overSq.dataset.sq : null;
   if (to && S.selected && S.legalMoves.some(m => m.to === to)) {
-    const from = S.selected;
-    S.selected = null; S.legalMoves = [];
-    executeMyMove(from, to).then(() => renderBoard());
-    renderBoard();
+    maybePromoteThenMove(S.selected, to);
   } else {
     renderBoard();                       // illegal drop -> keep piece selected
   }
+}
+// ── UX: your-move glow + promotion picker styles ──────────────────────────
+function ensureUxStyle() {
+  if (document.getElementById('ux-style')) return;
+  const st = document.createElement('style'); st.id = 'ux-style';
+  st.textContent =
+    "@keyframes uxFade{from{opacity:0}to{opacity:1}}" +
+    "@keyframes yourMovePulse{0%,100%{filter:drop-shadow(0 0 0 rgba(129,182,76,0));}50%{filter:drop-shadow(0 0 5px rgba(129,182,76,.9));}}" +
+    ".board.my-turn .sq.movable .piece{animation:yourMovePulse 2s ease-in-out infinite;}" +
+    ".board.my-turn .sq.ssel .piece{animation:none;}" +
+    "#promo-bg{position:fixed;inset:0;z-index:1900;display:flex;align-items:center;justify-content:center;background:rgba(10,12,16,.78);backdrop-filter:blur(4px);animation:uxFade .2s ease;}" +
+    "#promo-card{background:#14171C;border:1px solid #2A2F37;border-radius:16px;padding:18px 20px;box-shadow:0 22px 56px rgba(0,0,0,.6);text-align:center;}" +
+    "#promo-title{font-family:'Antonio',sans-serif;font-weight:700;font-size:18px;color:#F5F1EA;letter-spacing:1px;margin-bottom:12px;}" +
+    "#promo-row{display:flex;gap:10px;}" +
+    ".promo-pick{width:64px;height:64px;background:#1B1F27;border:1px solid #2A2F37;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s,border-color .12s,background .12s;}" +
+    ".promo-pick:hover{transform:translateY(-3px);background:#222732;border-color:#F5C518;}" +
+    ".promo-pick img{width:46px;height:46px;}" +
+    "@media(max-width:520px){.promo-pick{width:56px;height:56px;}.promo-pick img{width:40px;height:40px;}}";
+  document.head.appendChild(st);
+}
+
+function isPromotionMove(from, to) {
+  if (!S.chess) return false;
+  const p = S.chess.get(from);
+  if (!p || p.type !== 'p') return false;
+  const r = to[1];
+  return (p.color === 'w' && r === '8') || (p.color === 'b' && r === '1');
+}
+
+function showPromoPicker(onPick, onCancel) {
+  ensureUxStyle();
+  if (document.getElementById('promo-bg')) return;
+  const color = S.myColor[0];
+  const bg = document.createElement('div'); bg.id = 'promo-bg';
+  bg.innerHTML = '<div id="promo-card"><div id="promo-title">Promote to</div><div id="promo-row">' +
+    ['q', 'r', 'b', 'n'].map(function (t) {
+      return '<button class="promo-pick" data-p="' + t + '"><img src="' +
+        PIECE_IMGS_URLS[color + t.toUpperCase()] + '" alt="' + t + '"></button>';
+    }).join('') + '</div></div>';
+  document.body.appendChild(bg);
+  let done = false;
+  bg.querySelectorAll('.promo-pick').forEach(function (b) {
+    b.onclick = function () { if (done) return; done = true; const p = b.dataset.p; bg.remove(); onPick(p); };
+  });
+  bg.onclick = function (e) { if (e.target === bg && !done) { done = true; bg.remove(); if (onCancel) onCancel(); } };
+}
+
+function maybePromoteThenMove(from, to) {
+  S.selected = null; S.legalMoves = [];
+  if (isPromotionMove(from, to)) {
+    showPromoPicker(function (piece) {
+      executeMyMove(from, to, piece).then(function () { renderBoard(); });
+      renderBoard();
+    }, function () {
+      S.selected = from;
+      S.legalMoves = S.chess.moves({ square: from, verbose: true });
+      renderBoard();
+    });
+    renderBoard();
+    return;
+  }
+  executeMyMove(from, to).then(function () { renderBoard(); });
+  renderBoard();
 }
 async function onSqClick(e) {
   if (S._dragMoved) { S._dragMoved = false; return; }
@@ -1377,11 +1441,7 @@ async function onSqClick(e) {
 
   // Execute a legal move
   if (S.selected && S.legalMoves.some(m=>m.to===squareName)) {
-    const fromSq = S.selected;
-    S.selected = null;
-    S.legalMoves = [];
-    await executeMyMove(fromSq, squareName);
-    renderBoard();
+    maybePromoteThenMove(S.selected, squareName);
     return;
   }
 
@@ -1661,7 +1721,7 @@ function explodePiece(toSquare) {
   setTimeout(() => { burst.remove(); if (piece) piece.classList.remove('exploding-piece'); }, 1100);
 }
 
-async function executeMyMove(from, to) {
+async function executeMyMove(from, to, promo) {
   if (S.judging || S.gameOver) return;
 
   // Capture the TRUE position before the move (fresh baseline, no stale cache).
@@ -1669,7 +1729,7 @@ async function executeMyMove(from, to) {
   S.preMoveEval = null;
 
   // Make the move — INSTANT.
-  const moveObj = S.chess.move({ from, to, promotion: 'q' });
+  const moveObj = S.chess.move({ from, to, promotion: promo || 'q' });
   if (!moveObj) return;
 
   if (S.moveStartTime > 0) {
