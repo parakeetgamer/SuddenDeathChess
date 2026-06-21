@@ -221,6 +221,8 @@ function startBotGame(ws, opts) {
     bot.rating = R; bot.name = 'CPU'; bot.strength = R + 300;
     bot.blunderChance = Math.max(0, Math.min(0.5, 0.5 * (1 - (R - 500) / 2500)));
     bot.searchDepth = R < 1000 ? 1 : (R < 2000 ? 2 : 3);
+    bot.useStockfish = true; bot.elo = R;
+    try { require('./stockfish').loadEngine(); } catch (e) {}
   } else if (human.guest) {
     bot.name = guestName();   // guests face an anonymous "guest" opponent
   }

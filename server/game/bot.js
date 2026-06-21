@@ -1,4 +1,5 @@
 const { Chess } = require('chess.js');
+const { getBotMove } = require('./stockfish');
 
 // Opponent archetypes — each game rolls one for real variety in name,
 // strength, and play style.
@@ -95,11 +96,10 @@ class BotPlayer {
 
   scheduleMove() {
     if (!this.active || this.session.over) return;
-    const delay = Math.min(4800, 800 + Math.random() * Math.random() * 4500); // human-ish, capped under the 5s clock
+    const reserve = this.useStockfish ? 700 : 0;
+    const delay = Math.min(4800 - reserve, 800 + Math.random() * Math.random() * 4500); // human-ish, capped under the 5s clock
     setTimeout(() => {
-      try {
-        this.makeMove();
-      } catch (e) {
+      Promise.resolve().then(() => this.makeMove()).catch((e) => {
         console.error('[BOT] makeMove crashed:', e.message, e.stack);
         // Fallback: make any legal move so game doesn't freeze
         try {
@@ -116,11 +116,11 @@ class BotPlayer {
         } catch (e2) {
           console.error('[BOT] fallback also failed:', e2.message);
         }
-      }
+      });
     }, delay);
   }
 
-  makeMove() {
+  async makeMove() {
     if (!this.active || this.session.over) return;
     if (this.chess.turn() !== this.color) return;
 
@@ -129,16 +129,20 @@ class BotPlayer {
 
     let chosen;
 
-    // Decide if we'll blunder this turn
-    const willBlunder = Math.random() < this.blunderChance;
-    if (willBlunder && legalMoves.length > 2) {
-      // Weak (not suicidal) move: pick from the weaker half of scored moves.
-      const scored = this.scoreMoves(legalMoves);
-      const half = scored.slice(Math.floor(scored.length / 2));
-      chosen = half[Math.floor(Math.random() * half.length)].move;
-      console.log('[BOT]', this.name, 'making weak move (rating', this.rating, ')');
-    } else {
-      chosen = this.chooseMove(legalMoves);
+    if (this.useStockfish) {
+      chosen = await this.stockfishMove(legalMoves);
+    }
+    if (!chosen) {
+      // Non-Stockfish bot, or engine error -> homemade engine with blunder chance.
+      const willBlunder = Math.random() < this.blunderChance;
+      if (willBlunder && legalMoves.length > 2) {
+        const scored = this.scoreMoves(legalMoves);
+        const half = scored.slice(Math.floor(scored.length / 2));
+        chosen = half[Math.floor(Math.random() * half.length)].move;
+        console.log('[BOT]', this.name, 'making weak move (rating', this.rating, ')');
+      } else {
+        chosen = this.chooseMove(legalMoves);
+      }
     }
 
     if (!chosen) return;
@@ -159,6 +163,22 @@ class BotPlayer {
       evalAfter: 0,
       color: this.color === 'w' ? 'white' : 'black',
     });
+  }
+
+  async stockfishMove(legalMoves) {
+    const elo = this.elo || this.rating || 1500;
+    // Below Stockfish's Elo floor (1320), occasionally play a random legal move
+    // so the very low-rated bots actually feel that weak.
+    if (elo < 1320) {
+      const p = Math.max(0, Math.min(0.55, 0.55 * (1320 - elo) / 820));
+      if (Math.random() < p) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    }
+    let uci = null;
+    try { uci = await getBotMove(this.chess.fen(), elo, 400); } catch (e) { uci = null; }
+    if (!uci || uci.length < 4) return null;
+    const from = uci.slice(0, 2), to = uci.slice(2, 4), promo = uci[4] || 'q';
+    const match = legalMoves.find(m => m.from === from && m.to === to);
+    return match || { from, to, promotion: promo };
   }
 
   scoreMoves(moves) {
