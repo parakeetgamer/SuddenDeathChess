@@ -434,6 +434,7 @@ function show(id) {
   document.getElementById(id).classList.add('active');
   if (id === 's-lobby') initAds();
   const _bb = document.getElementById('btn-bot'); if (_bb) _bb.style.display = (id === 's-lobby') ? 'flex' : 'none';
+  const _lf = document.getElementById('learn-fab'); if (_lf) _lf.style.display = (id === 's-login') ? 'flex' : 'none';
 }
 
 // ══════════════════════════════════════════
@@ -3605,11 +3606,26 @@ function showTutorial() {
 }
 
 
+function mountLearnFab() {
+  if (document.getElementById('learn-fab')) return;
+  const st = document.createElement('style'); st.id = 'learn-fab-style';
+  st.textContent =
+    "#learn-fab{position:fixed;top:14px;right:16px;z-index:1200;display:flex;align-items:center;gap:7px;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.5);border-radius:10px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:600;letter-spacing:.4px;padding:9px 13px;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s,transform .15s;}" +
+    "#learn-fab:hover{background:rgba(245,197,24,.22);transform:translateY(-1px);}" +
+    "@media(max-width:520px){#learn-fab{top:10px;right:10px;font-size:11.5px;padding:8px 11px;}}";
+  document.head.appendChild(st);
+  const b = document.createElement('button'); b.id = 'learn-fab';
+  b.innerHTML = '\u265F How to Play';
+  b.onclick = function () { openChessBasics(); };
+  document.body.appendChild(b);
+}
+
 (async function init() {
   const _chal = new URLSearchParams(location.search).get('challenge');
   if (_chal) S.joinChallenge = _chal;
   connectWS();
   initStockfish();
+  mountLearnFab();
 
   // Auto-login if token exists
   if (S.token) {
