@@ -1223,7 +1223,6 @@ function buildBoardOnce() {
       const squareName = 'abcdefgh'[file] + (rank+1);
       sq.className = 'sq ' + ((row+col)%2===0?'light':'dark');
       sq.dataset.sq = squareName;
-      sq.addEventListener('click', onSqClick);
       sq.addEventListener('pointerdown', onSqPointerDown);
       el.appendChild(sq);
     }
@@ -1302,18 +1301,32 @@ function onSqPointerDown(e) {
   if (!S.chess || S.gameOver || S.judging) return;
   if (S.chess.turn() !== S.myColor[0]) return;                 // your turn only
   const sqEl = e.currentTarget;
-  const from = sqEl.dataset.sq;
-  const piece = S.chess.get(from);
-  if (!piece || piece.color !== S.myColor[0]) return;          // only your own pieces
-  ensureDragStyle();
-  S.selected = from;
-  S.legalMoves = S.chess.moves({ square: from, verbose: true });
-  renderBoard();
-  dragState = { from, sqEl, moved: false, startX: e.clientX, startY: e.clientY, ghost: null, overEl: null };
-  window.addEventListener('pointermove', onDragMove);
-  window.addEventListener('pointerup', onDragUp);
-  window.addEventListener('pointercancel', onDragUp);
-  e.preventDefault();
+  const sq = sqEl.dataset.sq;
+  const piece = S.chess.get(sq);
+
+  // 1) a piece is selected and this square is a legal destination -> move INSTANTLY
+  if (S.selected && S.selected !== sq && S.legalMoves.some(m => m.to === sq)) {
+    e.preventDefault();
+    maybePromoteThenMove(S.selected, sq);
+    return;
+  }
+
+  // 2) tapping your own piece -> select it and arm a possible drag
+  if (piece && piece.color === S.myColor[0]) {
+    e.preventDefault();
+    ensureDragStyle();
+    S.selected = sq;
+    S.legalMoves = S.chess.moves({ square: sq, verbose: true });
+    renderBoard();
+    dragState = { from: sq, sqEl, moved: false, startX: e.clientX, startY: e.clientY, ghost: null, overEl: null };
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragUp);
+    window.addEventListener('pointercancel', onDragUp);
+    return;
+  }
+
+  // 3) tapped elsewhere with nothing to do -> clear any selection
+  if (S.selected) { S.selected = null; S.legalMoves = []; renderBoard(); }
 }
 function onDragMove(e) {
   if (!dragState) return;
@@ -1373,6 +1386,7 @@ function ensureUxStyle() {
   if (document.getElementById('ux-style')) return;
   const st = document.createElement('style'); st.id = 'ux-style';
   st.textContent =
+    ".sq{touch-action:manipulation;}.piece{touch-action:none;}" +
     "@keyframes uxFade{from{opacity:0}to{opacity:1}}" +
     "@keyframes yourMovePulse{0%,100%{filter:drop-shadow(0 0 0 rgba(129,182,76,0));}50%{filter:drop-shadow(0 0 5px rgba(129,182,76,.9));}}" +
     ".board.my-turn .sq.movable .piece{animation:yourMovePulse 2s ease-in-out infinite;}" +
