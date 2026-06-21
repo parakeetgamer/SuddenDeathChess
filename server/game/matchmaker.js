@@ -25,7 +25,7 @@ function handleConnection(ws) {
     switch (msg.type) {
       case 'auth':       return doAuth(ws, msg);
       case 'find_match': return doFindMatch(ws);
-      case 'play_bot':   return doPlayBot(ws);
+      case 'play_bot':   return doPlayBot(ws, msg);
       case 'cancel':     return doCancel(ws);
       case 'move':       return doMove(ws, msg);
       case 'checkmate':  return doCheckmate(ws, msg);
@@ -96,11 +96,11 @@ function doGuestAuth(ws) {
   console.log('[GUEST] joined:', name);
 }
 
-function doPlayBot(ws) {
+function doPlayBot(ws, msg) {
   if (!ws.player) return send(ws, { type: 'error', message: 'Not authenticated.' });
   if (ws.botTimer) { clearTimeout(ws.botTimer); ws.botTimer = null; }
   removeFromQueue(ws);
-  startBotGame(ws);
+  startBotGame(ws, { rating: msg && msg.rating });
 }
 
 function doFindMatch(ws) {
@@ -203,7 +203,7 @@ function startHumanGame(wsW, white, wsB, black) {
   console.log('[GAME] human:', white.username, 'vs', black.username);
 }
 
-function startBotGame(ws) {
+function startBotGame(ws, opts) {
   const human = ws.player;
   const id = uuidv4();
   const session = {
@@ -216,7 +216,14 @@ function startBotGame(ws) {
     bot: null
   };
   const bot = new BotPlayer(session, 'b', human.rating);
-  if (human.guest) bot.name = guestName();   // guests face an anonymous "guest" opponent, not a named bot
+  if (opts && opts.rating) {
+    const R = Math.max(500, Math.min(3000, Math.round(opts.rating)));
+    bot.rating = R; bot.name = 'CPU'; bot.strength = R + 300;
+    bot.blunderChance = Math.max(0, Math.min(0.5, 0.5 * (1 - (R - 500) / 2500)));
+    bot.searchDepth = R < 1000 ? 1 : (R < 2000 ? 2 : 3);
+  } else if (human.guest) {
+    bot.name = guestName();   // guests face an anonymous "guest" opponent
+  }
   session.bot = bot;
   session.black = { id: -1, username: bot.name, rating: bot.rating };
 
