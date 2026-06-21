@@ -282,15 +282,16 @@ function clearTeachArrows() { const c = document.getElementById('teach-arrows');
 function drawTeachArrow(fromSq, toSq, isKnight, color, rank) {
   const board = document.getElementById('board');
   if (!board) return;
+  const fromEl = board.querySelector('[data-sq="' + fromSq + '"]');
+  const toEl = board.querySelector('[data-sq="' + toSq + '"]');
+  if (!fromEl || !toEl) return;
   const rect = board.getBoundingClientRect();
-  const cell = rect.width / 8;
-  const flipped = S.myColor === 'black';
-  const center = (sq) => {
-    let file = sq.charCodeAt(0) - 97, rnk = parseInt(sq[1]) - 1;
-    let col = flipped ? 7 - file : file, row = flipped ? rnk : 7 - rnk;
-    return { x: col * cell + cell / 2, y: row * cell + cell / 2 };
+  const cell = fromEl.getBoundingClientRect().width;   // true rendered square size
+  const sqCenter = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
   };
-  const a = center(fromSq), b = center(toSq);
+  const a = sqCenter(fromEl), b = sqCenter(toEl);
   let pathD;
   if (isKnight) {
     const dx = b.x - a.x, dy = b.y - a.y;
@@ -303,7 +304,8 @@ function drawTeachArrow(fromSq, toSq, isKnight, color, rank) {
   if (!c) {
     c = document.createElement('div');
     c.id = 'teach-arrows';
-    c.style.cssText = 'position:absolute;left:0;top:0;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
+    const pRect = board.parentElement.getBoundingClientRect();
+    c.style.cssText = 'position:absolute;left:' + (rect.left - pRect.left) + 'px;top:' + (rect.top - pRect.top) + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
     board.parentElement.appendChild(c);
   }
   const mid = 'tah' + rank;
@@ -1618,18 +1620,16 @@ async function executeMyMove(from, to) {
 function drawBestArrow(fromSq, toSq, isKnight) {
   const board = document.getElementById('board');
   if (!board) return null;
+  const fromEl = board.querySelector('[data-sq="' + fromSq + '"]');
+  const toEl = board.querySelector('[data-sq="' + toSq + '"]');
+  if (!fromEl || !toEl) return null;
   const rect = board.getBoundingClientRect();
-  const cell = rect.width / 8;
-  const flipped = S.myColor === 'black';
-  // square name -> pixel center relative to board
-  const center = (sq) => {
-    let file = sq.charCodeAt(0) - 97;        // a..h -> 0..7
-    let rank = parseInt(sq[1]) - 1;          // 1..8 -> 0..7
-    let col = flipped ? 7 - file : file;
-    let row = flipped ? rank : 7 - rank;
-    return { x: col * cell + cell/2, y: row * cell + cell/2 };
+  const cell = fromEl.getBoundingClientRect().width;   // true rendered square size
+  const center = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left - rect.left + r.width/2, y: r.top - rect.top + r.height/2 };
   };
-  const a = center(fromSq), b = center(toSq);
+  const a = center(fromEl), b = center(toEl);
 
   let pathD;
   if (isKnight) {
@@ -1652,7 +1652,8 @@ function drawBestArrow(fromSq, toSq, isKnight) {
   if (ov) ov.remove();
   ov = document.createElement('div');
   ov.id = 'best-arrow';
-  ov.style.cssText = 'position:absolute;left:0;top:0;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
+  const pRect = board.parentElement.getBoundingClientRect();
+  ov.style.cssText = 'position:absolute;left:' + (rect.left - pRect.left) + 'px;top:' + (rect.top - pRect.top) + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;pointer-events:none;z-index:50;';
   ov.innerHTML =
     '<svg width="' + rect.width + '" height="' + rect.height + '" style="overflow:visible">' +
     '<defs><marker id="ah" markerWidth="6" markerHeight="6" refX="3.5" refY="3" orient="auto">' +
