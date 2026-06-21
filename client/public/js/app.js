@@ -3333,55 +3333,55 @@ document.getElementById('btn-to-lobby').addEventListener('click', () => {
 // ══════════════════════════════════════════
 // ── Learn Chess: interactive crash course ─────────────────────────────────
 const CB_LESSONS = [
-  { type: 'text', sym: '\u265E', title: 'Chess in 90 Seconds',
-    blurb: 'Two armies face off. Your goal: trap the enemy <strong>King</strong>. Let\u2019s meet your pieces \u2014 you\u2019ll move each one yourself. Tap along!' },
-  { type: 'play', sym: '\u265F', title: 'The Pawn', demo: 'e2',
+  { type: 'text', sym: '♟', title: 'Let’s Learn Chess',
+    blurb: 'Two sides face off, and the goal is to trap the other player’s <strong>King</strong>. We’ll go one piece at a time, and you move each one yourself. There’s no clock here — take all the time you like.' },
+  { type: 'play', sym: '♟', title: 'The Pawn', demo: 'e2',
     fen: '4k3/8/8/8/8/3p1p2/4P3/4K3 w - - 0 1',
-    blurb: 'Pawns march <strong>forward</strong> one square \u2014 two on their first move \u2014 but they <strong>capture diagonally</strong>. Reach the far side and a pawn becomes a Queen!',
-    hint: 'Tap the pawn to see where it can go.', hint2: 'Tap a glowing square \u2014 forward, or diagonally to capture!',
-    success: 'That\u2019s the pawn: forward to move, diagonal to capture.' },
-  { type: 'play', sym: '\u265E', title: 'The Knight', demo: 'e4',
+    blurb: 'Pawns move <strong>forward</strong>, but they <strong>capture diagonally</strong>. Reach the far side and a pawn becomes a Queen!',
+    hint: 'Tap a glowing square to move the pawn.',
+    success: 'Nice — forward to move, diagonal to capture.' },
+  { type: 'play', sym: '♞', title: 'The Knight', demo: 'e4',
     fen: '4k3/8/8/8/4N3/8/8/4K3 w - - 0 1',
-    blurb: 'The Knight leaps in an <strong>L-shape</strong> and is the <strong>only piece that jumps over others</strong>. Tricky to defend against!',
-    hint: 'Tap the knight to reveal its leaps.', hint2: 'Every glowing square is an L away \u2014 tap one!',
-    success: 'Eight L-shaped leaps \u2014 that\u2019s the knight.' },
-  { type: 'play', sym: '\u265D', title: 'The Bishop', demo: 'e4',
+    blurb: 'The Knight moves in an <strong>L-shape</strong>, and it’s the only piece that can <strong>jump over</strong> others.',
+    hint: 'Tap a glowing square to move the knight.',
+    success: 'That’s the knight’s tricky little leap.' },
+  { type: 'play', sym: '♝', title: 'The Bishop', demo: 'e4',
     fen: '7k/8/8/8/4B3/8/8/K7 w - - 0 1',
-    blurb: 'Bishops glide <strong>any distance along diagonals</strong>. Each one sticks to a single color for the whole game \u2014 keep both and you cover everything.',
-    hint: 'Tap the bishop to see its diagonals.', hint2: 'Slide it along any diagonal \u2014 tap a square!',
-    success: 'Diagonals as far as you like \u2014 the bishop.' },
-  { type: 'play', sym: '\u265C', title: 'The Rook', demo: 'e4',
+    blurb: 'Bishops slide <strong>diagonally</strong>, as far as they like.',
+    hint: 'Tap a glowing square to move the bishop.',
+    success: 'Diagonals all the way — the bishop.' },
+  { type: 'play', sym: '♜', title: 'The Rook', demo: 'e4',
     fen: '7k/8/8/8/4R3/8/8/K7 w - - 0 1',
-    blurb: 'Rooks blast in <strong>straight lines</strong> \u2014 up, down, and across. Powerful in the open, and the heavyweight of most endgames.',
-    hint: 'Tap the rook to see its range.', hint2: 'Send it down any rank or file \u2014 tap a square!',
-    success: 'Straight lines in every direction \u2014 the rook.' },
-  { type: 'play', sym: '\u265B', title: 'The Queen', demo: 'e4',
+    blurb: 'Rooks move in <strong>straight lines</strong> — up, down, or across.',
+    hint: 'Tap a glowing square to move the rook.',
+    success: 'Straight and strong — the rook.' },
+  { type: 'play', sym: '♛', title: 'The Queen', demo: 'e4',
     fen: '7k/8/8/8/4Q3/8/8/K7 w - - 0 1',
-    blurb: 'The Queen combines rook <strong>and</strong> bishop \u2014 straight lines <strong>and</strong> diagonals. The <strong>most powerful piece</strong> on the board. Guard her well!',
-    hint: 'Tap the queen \u2014 watch the board light up.', hint2: 'She goes almost anywhere \u2014 tap a square!',
-    success: 'Lines and diagonals both \u2014 the mighty queen.' },
-  { type: 'play', sym: '\u265A', title: 'The King', demo: 'e4',
+    blurb: 'The Queen moves <strong>any direction</strong> — straight or diagonal. She’s the strongest piece on the board.',
+    hint: 'Tap a glowing square to move the queen.',
+    success: 'Straight and diagonal — the mighty queen.' },
+  { type: 'play', sym: '♚', title: 'The King', demo: 'e4',
     fen: '7k/8/8/8/4K3/8/8/8 w - - 0 1',
-    blurb: 'The King steps <strong>one square in any direction</strong>. He\u2019s not strong \u2014 but if he\u2019s ever trapped, you lose. <strong>Protect him at all costs.</strong>',
-    hint: 'Tap the king to see his steps.', hint2: 'One square any way \u2014 tap a glowing square!',
-    success: 'One careful step at a time \u2014 the king.' },
-  { type: 'play', sym: '\u26A0\uFE0F', title: 'Check!', demo: 'e1',
+    blurb: 'The King moves just <strong>one square</strong> at a time, any direction. Keep him safe — if he’s ever trapped, you lose.',
+    hint: 'Tap a glowing square to move the king.',
+    success: 'One careful step — that’s the king.' },
+  { type: 'play', sym: '⚠️', title: 'Check', demo: 'e1',
     fen: '4q2k/8/8/8/8/8/8/4K3 w - - 0 1',
-    blurb: 'When your King is under attack, that\u2019s <strong>check</strong> \u2014 and you <strong>must</strong> respond: move away, block the attacker, or capture it. The black Queen has your king in its sights!',
-    hint: 'Tap your king \u2014 only the safe squares will glow.', hint2: 'Step the king to safety \u2014 tap a glowing square!',
-    success: 'Out of check! Notice only the safe moves were allowed.' },
-  { type: 'play', sym: '\uD83C\uDFC6', title: 'Checkmate \u2014 You Win!', demo: 'e1', mate: true,
+    blurb: 'When your King is under attack, that’s <strong>check</strong> — and you have to get out of it. Only the safe squares light up.',
+    hint: 'Tap a glowing square to move your king to safety.',
+    success: 'Out of check — only safe moves were allowed.' },
+  { type: 'play', sym: '🏆', title: 'Checkmate — You Win!', demo: 'e1', mate: true, only: 'e8',
     fen: '6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1',
-    blurb: 'A check with <strong>no escape</strong> is <strong>checkmate</strong> \u2014 that\u2019s how you win. The black king is boxed in by its own pawns. Send your rook to the <strong>back rank</strong> to finish it!',
-    hint: 'Tap your rook, then send it up to e8.', hint2: 'Deliver the blow \u2014 rook to the back rank!',
-    success: 'CHECKMATE \u2014 the king can\u2019t escape. That\u2019s a win!' },
-  { type: 'play', sym: '\uD83C\uDFF0', title: 'Castling', demo: 'e1',
+    blurb: 'A check the King <strong>can’t escape</strong> is <strong>checkmate</strong> — that wins the game. The black king is boxed in by its own pawns. Send your rook up to finish it!',
+    hint: 'Tap the glowing square to deliver checkmate.',
+    success: 'Checkmate — the king has no escape. You win!' },
+  { type: 'play', sym: '🏰', title: 'Castling', demo: 'e1', only: 'g1',
     fen: 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1',
-    blurb: 'Castling is the King\u2019s special move: he hops <strong>two squares toward a rook</strong>, and that rook jumps to his other side \u2014 tucking the king to safety in one move. Short side = <strong>kingside</strong>, long side = <strong>queenside</strong>.',
-    hint: 'Tap your king \u2014 the castling squares glow too.', hint2: 'Tap two squares to the right (g1) to castle kingside!',
-    success: 'Castled! King safe, rook activated \u2014 do this early most games.' },
-  { type: 'text', sym: '\u2694\uFE0F', title: 'You\u2019re Ready!',
-    blurb: 'That\u2019s every piece, check, checkmate, and castling. Now the twist that makes this <strong>Sudden Death Chess</strong>: a single blunder ends the game on the spot. Play sharp \u2014 and have fun!' },
+    blurb: 'Castling tucks your King to safety: he slides <strong>two squares</strong> toward a rook, and the rook hops to his other side — all in one move. It works on the other side too.',
+    hint: 'Tap the glowing square to castle your king to safety.',
+    success: 'Castled — king safe, rook ready. A great early move.' },
+  { type: 'text', sym: '⚔️', title: 'You’re Ready!',
+    blurb: 'That’s every piece, plus check, checkmate, and castling. Now for the twist that makes this <strong>Sudden Death Chess</strong>: a single blunder ends the game on the spot. Have fun out there!' },
 ];
 
 function cbStyle() {
@@ -3390,13 +3390,13 @@ function cbStyle() {
   st.textContent =
     "#cb-bg{position:fixed;inset:0;z-index:1600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(8,10,14,.92);backdrop-filter:blur(6px);animation:cbFade .3s ease;overflow-y:auto;}" +
     "@keyframes cbFade{from{opacity:0}to{opacity:1}}" +
-    "#cb-card{width:min(440px,96vw);background:linear-gradient(180deg,#1a1f27,#15181e);border:1px solid #2A2F37;border-radius:20px;padding:20px 22px 18px;box-shadow:0 28px 70px rgba(0,0,0,.7);position:relative;animation:cbIn .4s cubic-bezier(.18,.9,.32,1.4);}" +
+    "#cb-card{width:min(520px,94vw);background:linear-gradient(180deg,#1a1f27,#15181e);border:1px solid #2A2F37;border-radius:20px;padding:20px 14px 18px;box-shadow:0 28px 70px rgba(0,0,0,.7);position:relative;animation:cbIn .4s cubic-bezier(.18,.9,.32,1.4);}" +
     "@keyframes cbIn{from{opacity:0;transform:translateY(18px) scale(.96);}to{opacity:1;transform:none;}}" +
     "#cb-close{position:absolute;top:12px;right:12px;width:30px;height:30px;border:none;border-radius:50%;background:rgba(255,255,255,.07);color:#B8BCC4;font-size:18px;cursor:pointer;z-index:2;}" +
     "#cb-close:hover{background:rgba(255,255,255,.15);}" +
     "#cb-sym{font-size:34px;text-align:center;line-height:1;margin-bottom:6px;}" +
     "#cb-title{font-family:'Antonio',sans-serif;font-weight:700;font-size:30px;letter-spacing:.5px;color:#F5F1EA;text-align:center;margin-bottom:12px;}" +
-    "#cb-board{width:min(360px,82vw);aspect-ratio:1;margin:0 auto 12px;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:8px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.5);}" +
+    "#cb-board{width:min(480px,84vw);aspect-ratio:1;margin:0 auto 12px;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:8px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.5);}" +
     ".cb-sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;}" +
     ".cb-l{background:#EBECD0;}.cb-d{background:#739552;}" +
     ".cb-sq img{width:84%;height:84%;pointer-events:none;}" +
@@ -3490,15 +3490,17 @@ function openChessBasics(onExit) {
 
   function setupPlay(L) {
     const chess = new Chess(L.fen);
-    let sel = null, dots = [], lastTo = null, solved = false;
+    const sel = L.demo;
+    let dots = L.only ? [L.only] : chess.moves({ square: sel, verbose: true }).map(function (m) { return m.to; });
+    let lastTo = null, solved = false;
     const boardEl = card.querySelector('#cb-board');
     const hintEl = card.querySelector('#cb-hint');
     const nextEl = card.querySelector('#cb-next');
 
     function draw() {
-      boardEl.innerHTML = cbRenderBoard(chess, sel, dots, lastTo);
-      if (!sel && !solved) {
-        const d = boardEl.querySelector('[data-sq="' + L.demo + '"]');
+      boardEl.innerHTML = cbRenderBoard(chess, null, solved ? [] : dots, lastTo);
+      if (!solved) {
+        const d = boardEl.querySelector('[data-sq="' + sel + '"]');
         if (d) d.classList.add('cb-pulse');
       }
     }
@@ -3508,27 +3510,19 @@ function openChessBasics(onExit) {
       if (solved) return;
       const cellEl = e.target.closest('[data-sq]'); if (!cellEl) return;
       const sq = cellEl.dataset.sq;
-      if (sel && dots.indexOf(sq) >= 0) {
-        const mv = chess.moves({ verbose: true }).find(function (m) { return m.from === sel && m.to === sq; });
-        chess.move(mv); lastTo = sq; sel = null; dots = [];
-        if (L.mate && !chess.isCheckmate()) {
-          draw();
-          hintEl.innerHTML = 'So close \u2014 that doesn\u2019t trap the king yet. Send the rook all the way to <strong>e8</strong>!';
-          setTimeout(function () { chess.load(L.fen); lastTo = null; draw(); }, 1200);
-          return;
-        }
-        solved = true; draw();
-        cbBurst(card, L.mate ? 'CHECKMATE! \uD83C\uDFC6' : 'Nice! \u26A1');
-        hintEl.innerHTML = L.success;
-        nextEl.classList.add('cb-ready');
-        return;
+      if (dots.indexOf(sq) < 0) return;
+      const mv = chess.moves({ verbose: true }).find(function (m) { return m.from === sel && m.to === sq; });
+      if (!mv) return;
+      chess.move(mv); lastTo = sq; dots = [];
+      if (L.mate && !chess.isCheckmate()) {
+        chess.load(L.fen); lastTo = null;
+        dots = L.only ? [L.only] : chess.moves({ square: sel, verbose: true }).map(function (m) { return m.to; });
+        draw(); return;
       }
-      const piece = chess.get(sq);
-      if (piece && piece.color === 'w') {
-        const ms = chess.moves({ square: sq, verbose: true });
-        if (ms.length) { sel = sq; dots = ms.map(function (m) { return m.to; }); draw(); hintEl.innerHTML = L.hint2; return; }
-      }
-      sel = null; dots = []; draw();
+      solved = true; draw();
+      cbBurst(card, L.mate ? 'CHECKMATE! 🏆' : 'Nice! ⚡');
+      hintEl.innerHTML = L.success;
+      nextEl.classList.add('cb-ready');
     };
   }
 
@@ -3596,7 +3590,7 @@ function showTutorial() {
       '<div id="tut-title">' + s.title + '</div>' +
       '<div id="tut-body">' + s.body + '</div>' +
       '<div id="tut-dots">' + dots + '</div>' +
-      '<button id="tut-learn">\u265F New to chess? Take the 2-min crash course</button>' +
+      '<button id="tut-learn">\u265F New to chess? Learn how to play</button>' +
       '<div id="tut-btns">' +
         (last ? '' : '<button id="tut-skip">SKIP</button>') +
         '<button id="tut-next">' + (last ? 'PLAY' : 'NEXT') + '</button>' +
