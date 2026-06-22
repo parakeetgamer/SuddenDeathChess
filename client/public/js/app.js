@@ -434,7 +434,6 @@ function show(id) {
   document.getElementById(id).classList.add('active');
   if (id === 's-lobby') initAds();
   const _bb = document.getElementById('btn-bot'); if (_bb) _bb.style.display = (id === 's-lobby') ? 'flex' : 'none';
-  const _lf = document.getElementById('learn-fab'); if (_lf) _lf.style.display = (id === 's-login') ? 'flex' : 'none';
 }
 
 // ══════════════════════════════════════════
@@ -3536,7 +3535,7 @@ function tutorialStyle() {
   st.textContent =
     "#tut-bg{position:fixed;inset:0;z-index:1500;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(10,12,16,.84);backdrop-filter:blur(4px);animation:tutFade .3s ease;overflow-y:auto;}" +
     "#tut-bg.tut-out{opacity:0;transition:opacity .35s ease;}" +
-    "#tut-card{width:min(420px,94vw);background:#191D24;border:1px solid #2A2F37;border-radius:18px;padding:30px 26px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.6);animation:tutIn .4s cubic-bezier(.18,.9,.32,1.4);}" +
+    "#tut-card{position:relative;width:min(420px,94vw);background:#191D24;border:1px solid #2A2F37;border-radius:18px;padding:30px 26px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.6);animation:tutIn .4s cubic-bezier(.18,.9,.32,1.4);}" +
     "#tut-icon{font-size:46px;line-height:1;margin-bottom:14px;}" +
     "#tut-title{font-family:'Antonio',sans-serif;font-weight:700;font-size:31px;letter-spacing:.5px;color:#F5F1EA;margin-bottom:12px;}" +
     "#tut-body{font-size:18px;line-height:1.6;color:#C4C8D0;margin-bottom:24px;}" +
@@ -3548,7 +3547,7 @@ function tutorialStyle() {
     "#tut-skip{flex:none;background:none;border:none;color:#6B7280;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;padding:8px;}" +
     "#tut-next{flex:1;background:#E8722A;border:none;border-radius:9px;color:#fff;font-family:'Antonio',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px;padding:13px;cursor:pointer;}" +
     "#tut-next:hover{background:#ff8438;}" +
-    "#tut-learn{display:block;width:100%;margin:14px 0 2px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.4);border-radius:9px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.4px;padding:11px;cursor:pointer;transition:background .2s;line-height:1.35;}" +
+    "#tut-learn{position:absolute;top:10px;right:10px;width:auto;margin:0;display:flex;align-items:center;gap:5px;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.45);border-radius:8px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.3px;padding:7px 10px;cursor:pointer;transition:background .2s;line-height:1.2;z-index:2;}" +
     "#tut-learn:hover{background:rgba(245,197,24,.2);}" +
     "@keyframes tutIn{from{opacity:0;transform:translateY(16px) scale(.95);}to{opacity:1;transform:translateY(0) scale(1);}}" +
     "@keyframes tutFade{from{opacity:0;}to{opacity:1;}}";
@@ -3591,7 +3590,7 @@ function showTutorial() {
       '<div id="tut-title">' + s.title + '</div>' +
       '<div id="tut-body">' + s.body + '</div>' +
       '<div id="tut-dots">' + dots + '</div>' +
-      '<button id="tut-learn">\u265F New to chess? Learn how to play</button>' +
+      '<button id="tut-learn">\u265F Never played?</button>' +
       '<div id="tut-btns">' +
         (last ? '' : '<button id="tut-skip">SKIP</button>') +
         '<button id="tut-next">' + (last ? 'PLAY' : 'NEXT') + '</button>' +
@@ -3606,26 +3605,12 @@ function showTutorial() {
 }
 
 
-function mountLearnFab() {
-  if (document.getElementById('learn-fab')) return;
-  const st = document.createElement('style'); st.id = 'learn-fab-style';
-  st.textContent =
-    "#learn-fab{position:fixed;top:14px;right:16px;z-index:1200;display:flex;align-items:center;gap:7px;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.5);border-radius:10px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:600;letter-spacing:.4px;padding:9px 13px;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s,transform .15s;}" +
-    "#learn-fab:hover{background:rgba(245,197,24,.22);transform:translateY(-1px);}" +
-    "@media(max-width:520px){#learn-fab{top:10px;right:10px;font-size:11.5px;padding:8px 11px;}}";
-  document.head.appendChild(st);
-  const b = document.createElement('button'); b.id = 'learn-fab';
-  b.innerHTML = '\u265F How to Play';
-  b.onclick = function () { openChessBasics(); };
-  document.body.appendChild(b);
-}
-
 (async function init() {
   const _chal = new URLSearchParams(location.search).get('challenge');
   if (_chal) S.joinChallenge = _chal;
   connectWS();
   initStockfish();
-  mountLearnFab();
+
 
   // Auto-login if token exists
   if (S.token) {
