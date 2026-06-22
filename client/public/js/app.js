@@ -3547,7 +3547,7 @@ function tutorialStyle() {
     "#tut-skip{flex:none;background:none;border:none;color:#6B7280;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;cursor:pointer;padding:8px;}" +
     "#tut-next{flex:1;background:#E8722A;border:none;border-radius:9px;color:#fff;font-family:'Antonio',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px;padding:13px;cursor:pointer;}" +
     "#tut-next:hover{background:#ff8438;}" +
-    "#tut-learn{position:absolute;top:10px;right:10px;width:auto;margin:0;display:flex;align-items:center;gap:5px;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.45);border-radius:8px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.3px;padding:7px 10px;cursor:pointer;transition:background .2s;line-height:1.2;z-index:2;}" +
+    "#tut-learn{position:absolute;top:9px;right:9px;width:auto;margin:0;display:flex;align-items:center;gap:5px;white-space:nowrap;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.45);border-radius:8px;color:#F5C518;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.2px;padding:6px 9px;cursor:pointer;transition:background .2s;line-height:1.2;z-index:2;}" +
     "#tut-learn:hover{background:rgba(245,197,24,.2);}" +
     "@keyframes tutIn{from{opacity:0;transform:translateY(16px) scale(.95);}to{opacity:1;transform:translateY(0) scale(1);}}" +
     "@keyframes tutFade{from{opacity:0;}to{opacity:1;}}";
@@ -3590,7 +3590,7 @@ function showTutorial() {
       '<div id="tut-title">' + s.title + '</div>' +
       '<div id="tut-body">' + s.body + '</div>' +
       '<div id="tut-dots">' + dots + '</div>' +
-      '<button id="tut-learn">\u265F Never played?</button>' +
+      '<button id="tut-learn">\u265F Never played chess before?</button>' +
       '<div id="tut-btns">' +
         (last ? '' : '<button id="tut-skip">SKIP</button>') +
         '<button id="tut-next">' + (last ? 'PLAY' : 'NEXT') + '</button>' +
