@@ -28,6 +28,13 @@ app.use('/api/payments', require('./routes/payments').router);
 // Health check for Railway/Render
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// Live player count — number of currently open WebSocket connections (sdc-stats)
+app.get('/api/stats', (req, res) => {
+  let online = 0;
+  wss.clients.forEach((c) => { if (c.readyState === WebSocket.OPEN) online++; });
+  res.json({ online: online, ts: Date.now() });
+});
+
 // Serve frontend for all other routes (SPA)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/public/index.html'));
