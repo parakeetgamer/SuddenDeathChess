@@ -24,6 +24,7 @@ const sndBlunder = () => { tone(220,'sawtooth',.15,.22,.01,.2); setTimeout(()=>t
 const sndWin     = () => [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.15,.18,.01,.12),i*100));
 const sndTick    = () => tone(800,'square',.02,.07,.002,.02);
 const sndHeart   = () => { tone(70,'sine',.10,.30,.005,.10); setTimeout(()=>tone(55,'sine',.13,.26,.005,.13),140); };
+const sndCheck   = () => { tone(990,'square',.05,.12,.003,.04); setTimeout(()=>tone(1320,'square',.05,.10,.003,.04),60); };
 
 // ══════════════════════════════════════════
 // STATE
@@ -1735,8 +1736,9 @@ function explodePiece(toSquare) {
   setTimeout(() => { burst.remove(); if (piece) piece.classList.remove('exploding-piece'); }, 1100);
 }
 
-async function executeMyMove(from, to, promo) {
+async function executeMyMove(from, to, promo, _force) {
   if (S.judging || S.gameOver) return;
+  if (!_force && window.SDCX && SDCX.riskGuard && SDCX.riskGuard(from, to, promo)) return;
 
   // Capture the TRUE position before the move (fresh baseline, no stale cache).
   const fenBefore = S.chess.fen();
@@ -1756,6 +1758,7 @@ async function executeMyMove(from, to, promo) {
   // hand the clock to the opponent until our turn comes back
   S.lastFrom = from; S.lastTo = to;
   if (moveObj.captured) sndCapture(); else sndMove();
+  try { var _ic = S.chess.inCheck?S.chess.inCheck():(S.chess.in_check?S.chess.in_check():false); if(_ic && typeof sndCheck==='function') sndCheck(); } catch(e){}
   S.selected = null; S.legalMoves = [];
   renderBoard();
   if (moveObj.captured) {
@@ -1989,6 +1992,7 @@ async function runVerdict({ moveObj, from, to, fenBefore, evalBeforeWhitePOV, ev
 
   // ════════════ BLUNDER ════════════
   if (isClientBlunder) {
+    try { if (window.SDCX && SDCX.noteBlunder) SDCX.noteBlunder(fenBefore, moveObj.san); } catch(e){}
     // Build human-readable explanation
     let blunderDetail = null;
     const opponentMoves = S.chess.moves({ verbose: true });
@@ -2132,6 +2136,7 @@ async function onOpponentMove(msg) {
 
   S.lastFrom = msg.from; S.lastTo = msg.to;
   if (moveObj.captured) sndCapture(); else sndMove();
+  try { var _ic = S.chess.inCheck?S.chess.inCheck():(S.chess.in_check?S.chess.in_check():false); if(_ic && typeof sndCheck==='function') sndCheck(); } catch(e){}
   if (moveObj.captured) {
     S.capturedOpp.push((S.myColor==='white'?'w':'b') + moveObj.captured.toUpperCase());
     updateCaptures();
@@ -2474,6 +2479,7 @@ function onGameOver(msg) {
   noAdsEl.style.display = (msg.noAdsUnlocked && msg.noAdsUnlocked[S.myColor]) ? 'block' : 'none';
   injectBestMoveCTA(iWon);
   injectGuestSaveCTA();
+  try { if (window.SDCX) { SDCX.afterGameOver(iWon, myRatings); if (SDCX.showRetryButton) SDCX.showRetryButton(); if (SDCX.wireModal) SDCX.wireModal(); } } catch(e){}
 
   // Delay modal so dramatic blunder reaction plays first
   setTimeout(() => {
@@ -3937,3 +3943,456 @@ function initAds() {
     try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
   });
 }
+
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   SDCX — Sudden Death Chess engagement module (v13 batch)
+   Self-contained. Reads existing globals (S, PIECE_SVG, Chess, sfEval, toast,
+   show, sndCheck) defensively. Exposes window.SDCX.
+   Features: daily puzzle + daily streak, survival puzzle mode, retry-the-
+   blunder, beginner blunder-protection, rating-high / win-streak celebrations,
+   comeback banner, first-match coachmark, Enter-to-rematch, new-opponent.
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+  if (window.SDCX) return;
+
+  // ---- tiny storage helpers ----
+  function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function jGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+  function jSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+  // ---- chess.js version-tolerant shims ----
+  function mkChess(fen) { return fen ? new Chess(fen) : new Chess(); }
+  function isMate(c) { return c.isCheckmate ? c.isCheckmate() : (c.in_checkmate ? c.in_checkmate() : false); }
+  function inChk(c) { return c.inCheck ? c.inCheck() : (c.in_check ? c.in_check() : false); }
+  function VAL(t) { return ({ p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 })[t] || 0; }
+
+  // ════════ VERIFIED PUZZLE POOL (all mate-in-1, validated with chess.js) ════════
+  var PUZZLES = [{"fen": "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1", "sol": ["Ra8#"], "label": "Back-rank rook"}, {"fen": "3r2k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", "sol": ["Rxd8#"], "label": "Take and mate"}, {"fen": "k7/8/1K6/8/8/8/8/7R w - - 0 1", "sol": ["Rh8#"], "label": "King-and-rook mate"}, {"fen": "7k/8/7K/8/8/8/8/5R2 w - - 0 1", "sol": ["Rf8#"], "label": "King-and-rook mate"}, {"fen": "6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1", "sol": ["Nf7#"], "label": "Smothered knight"}, {"fen": "6k1/4Qppp/8/8/8/8/8/6K1 w - - 0 1", "sol": ["Qd8#", "Qe8#"], "label": "Queen on the back rank"}, {"fen": "4k3/R7/4K3/8/8/8/8/8 w - - 0 1", "sol": ["Ra8#"], "label": "King-and-rook mate"}, {"fen": "6k1/R7/6K1/8/8/8/8/8 w - - 0 1", "sol": ["Ra8#"], "label": "King-and-rook mate"}, {"fen": "2k5/8/2K5/8/8/8/8/7R w - - 0 1", "sol": ["Rh8#"], "label": "King-and-rook mate"}, {"fen": "7k/6pp/8/8/8/8/8/Q6K w - - 0 1", "sol": ["Qa8#"], "label": "Queen back-rank?"}, {"fen": "6k1/5ppp/8/8/8/8/8/3R2K1 w - - 0 1", "sol": ["Rd8#"], "label": "Rook to d8?"}, {"fen": "4r1k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1", "sol": ["Rxe8#"], "label": "Trade and mate?"}, {"fen": "k7/2K5/8/8/8/8/8/7R w - - 0 1", "sol": ["Ra1#"], "label": "King-and-rook mate"}, {"fen": "7k/Q5pp/8/8/8/8/8/6K1 w - - 0 1", "sol": ["Qa8#", "Qb8#"], "label": "Queen to a8?"}, {"fen": "6k1/6pp/8/8/8/8/6PP/q5K1 b - - 0 1", "sol": ["Qe1#"], "label": "Black back-rank"}];
+
+  // ════════ shared style ════════
+  var STYLED = false;
+  function ensureStyle() {
+    if (STYLED) return; STYLED = true;
+    var css =
+      '.sdx-ov{position:fixed;inset:0;z-index:3000;background:rgba(10,12,16,.97);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;padding:24px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#F5F1EA;}' +
+      '.sdx-x{position:fixed;top:14px;right:16px;background:none;border:none;color:#9aa;font-size:30px;line-height:1;cursor:pointer;z-index:3010;}' +
+      '.sdx-h{font-family:Antonio,sans-serif;font-weight:700;letter-spacing:2px;font-size:30px;margin:6px 0 2px;text-align:center;}' +
+      '.sdx-h .ember{color:#FF7A1A;} .sdx-h .death{color:#9b6bff;}' +
+      '.sdx-sub{color:#A9A29A;font-size:14px;margin-bottom:14px;text-align:center;max-width:420px;}' +
+      '.sdx-board{width:min(92vw,440px);aspect-ratio:1;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:8px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.6);touch-action:manipulation;}' +
+      '.sdx-sq{position:relative;display:flex;align-items:center;justify-content:center;}' +
+      '.sdx-sq.l{background:#E8D7B5;} .sdx-sq.d{background:#9c6b43;}' +
+      '.sdx-sq.sel{box-shadow:inset 0 0 0 4px #F5C518;}' +
+      '.sdx-sq.tgt::after{content:"";position:absolute;width:30%;height:30%;border-radius:50%;background:rgba(52,211,153,.85);}' +
+      '.sdx-sq.tgtc::after{content:"";position:absolute;inset:6%;border-radius:50%;border:5px solid rgba(52,211,153,.85);}' +
+      '.sdx-sq img,.sdx-sq svg{width:86%;height:86%;pointer-events:none;}' +
+      '.sdx-msg{min-height:26px;margin-top:12px;font-weight:700;font-size:17px;text-align:center;}' +
+      '.sdx-msg.ok{color:#34D399;} .sdx-msg.no{color:#E11D2E;}' +
+      '.sdx-btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:16px;}' +
+      '.sdx-b{font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1.5px;font-size:16px;padding:12px 22px;border-radius:9px;border:none;cursor:pointer;}' +
+      '.sdx-b.primary{background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;}' +
+      '.sdx-b.ghost{background:transparent;color:#C9C2B8;border:1px solid rgba(255,255,255,.25);}' +
+      '.sdx-pill{display:inline-flex;gap:8px;align-items:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:6px 14px;font-size:14px;margin:2px 6px 10px;}' +
+      '.sdx-pill b{color:#F5C518;}' +
+      '#sdc-modes{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}' +
+      '#sdc-modes button{font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:15px;padding:11px 18px;border-radius:10px;border:1px solid rgba(245,197,24,.4);background:rgba(245,197,24,.08);color:#F5C518;cursor:pointer;transition:transform .15s,background .15s;}' +
+      '#sdc-modes button:hover{transform:translateY(-2px);background:rgba(245,197,24,.16);}' +
+      '#sdc-comeback{max-width:560px;margin:14px auto 0;background:linear-gradient(135deg,rgba(155,107,255,.14),rgba(255,122,26,.12));border:1px solid rgba(245,197,24,.3);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;color:#F5F1EA;}' +
+      '#sdc-comeback .cb-txt{flex:1;font-size:14px;} #sdc-comeback b{color:#F5C518;}' +
+      '#sdc-comeback button{font-family:Antonio,sans-serif;font-weight:700;font-size:14px;padding:8px 14px;border-radius:8px;border:none;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;cursor:pointer;}' +
+      '#sdc-comeback .cb-x{background:none;color:#9aa;font-size:20px;padding:0 4px;}' +
+      '.sdx-flash{position:fixed;left:50%;top:30%;transform:translate(-50%,-50%);z-index:3200;pointer-events:none;text-align:center;font-family:Antonio,sans-serif;font-weight:700;animation:sdxFl 1.8s ease-out forwards;}' +
+      '.sdx-flash .big{font-size:54px;letter-spacing:3px;color:#F5C518;text-shadow:0 0 30px rgba(245,197,24,.7),0 4px 18px rgba(0,0,0,.6);}' +
+      '.sdx-flash .sm{font-size:18px;letter-spacing:2px;color:#FFE9B0;margin-top:4px;}' +
+      '@keyframes sdxFl{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}18%{opacity:1;transform:translate(-50%,-50%) scale(1)}75%{opacity:1}100%{opacity:0;transform:translate(-50%,-90%) scale(1.05)}}' +
+      '#sdc-coach{position:fixed;inset:0;z-index:2900;background:rgba(10,12,16,.82);display:flex;align-items:center;justify-content:center;padding:24px;}' +
+      '#sdc-coach .cc{max-width:380px;background:#16191F;border:1px solid rgba(245,197,24,.3);border-radius:16px;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
+      '#sdc-coach .cc h3{font-family:Antonio,sans-serif;letter-spacing:1px;color:#FF7A1A;margin:0 0 10px;font-size:24px;}' +
+      '#sdc-coach .cc p{color:#C9C2B8;font-size:15px;line-height:1.5;margin:0 0 18px;}' +
+      '#sdc-coach .cc button{font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1.5px;font-size:16px;padding:12px 26px;border-radius:9px;border:none;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;cursor:pointer;}' +
+      '#sdc-guard{position:fixed;inset:0;z-index:3100;background:rgba(10,12,16,.78);display:flex;align-items:center;justify-content:center;padding:24px;}' +
+      '#sdc-guard .gc{max-width:360px;background:#1b1410;border:1px solid rgba(225,29,46,.45);border-radius:16px;padding:22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
+      '#sdc-guard .gc h3{font-family:Antonio,sans-serif;color:#FF6A4A;margin:0 0 8px;font-size:22px;letter-spacing:1px;}' +
+      '#sdc-guard .gc p{color:#D8CFC6;font-size:14px;margin:0 0 16px;line-height:1.45;}' +
+      '#sdc-guard .gc .row{display:flex;gap:10px;}' +
+      '#sdc-guard .gc button{flex:1;font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:15px;padding:11px;border-radius:9px;cursor:pointer;border:none;}' +
+      '#sdc-guard .gc .play{background:#E11D2E;color:#fff;} #sdc-guard .gc .back{background:transparent;color:#C9C2B8;border:1px solid rgba(255,255,255,.25);}' +
+      '#sdc-guard-toggle{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:12px;color:#A9A29A;font-size:13px;cursor:pointer;user-select:none;}' +
+      '#sdc-guard-toggle .knob{width:34px;height:20px;border-radius:999px;background:rgba(255,255,255,.18);position:relative;transition:background .15s;}' +
+      '#sdc-guard-toggle .knob::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s;}' +
+      '#sdc-guard-toggle.on .knob{background:#34D399;} #sdc-guard-toggle.on .knob::after{left:16px;}';
+    var st = document.createElement('style'); st.id = 'sdcx-style'; st.textContent = css; document.head.appendChild(st);
+  }
+
+  // ════════ lightweight self-contained board ════════
+  function pieceMarkup(p) {
+    var key = p.color + p.type.toUpperCase();
+    if (typeof PIECE_SVG !== 'undefined' && PIECE_SVG[key]) return PIECE_SVG[key];
+    return '<span style="font-size:30px">' + ((typeof GLYPH !== 'undefined' && GLYPH[key]) || '') + '</span>';
+  }
+  // builds an interactive board into host; onMove(san, chessObj, fromTo) called after a legal move
+  function buildBoard(host, fen, onMove, opts) {
+    opts = opts || {};
+    var c = mkChess(fen);
+    var flip = c.turn() === 'b';            // mover at the bottom
+    var sel = null, legal = [];
+    var files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    function render() {
+      host.innerHTML = '';
+      var ranks = flip ? [1, 2, 3, 4, 5, 6, 7, 8] : [8, 7, 6, 5, 4, 3, 2, 1];
+      var fileOrder = flip ? ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'] : files;
+      for (var ri = 0; ri < 8; ri++) {
+        for (var fi = 0; fi < 8; fi++) {
+          var sq = fileOrder[fi] + ranks[ri];
+          var div = document.createElement('div');
+          var darkSq = ((files.indexOf(fileOrder[fi]) + ranks[ri]) % 2) === 0;
+          div.className = 'sdx-sq ' + (darkSq ? 'd' : 'l');
+          div.setAttribute('data-sq', sq);
+          var pc = c.get(sq);
+          if (pc) div.innerHTML = pieceMarkup(pc);
+          if (sel === sq) div.className += ' sel';
+          var lm = legal.find(function (m) { return m.to === sq; });
+          if (lm) div.className += lm.captured ? ' tgtc' : ' tgt';
+          div.onclick = (function (square) { return function () { onTap(square); }; })(sq);
+          host.appendChild(div);
+        }
+      }
+    }
+    function onTap(sq) {
+      if (opts.locked) return;
+      var pc = c.get(sq);
+      if (sel) {
+        var mv = legal.find(function (m) { return m.to === sq; });
+        if (mv) {
+          var done = c.move({ from: sel, to: sq, promotion: 'q' });
+          sel = null; legal = []; render();
+          if (done) onMove(done.san, c, { from: mv.from, to: mv.to, captured: done.captured });
+          return;
+        }
+      }
+      if (pc && pc.color === c.turn()) {
+        sel = sq;
+        legal = c.moves({ square: sq, verbose: true });
+      } else { sel = null; legal = []; }
+      render();
+    }
+    render();
+    return { chess: c, rerender: render, lock: function () { opts.locked = true; } };
+  }
+
+  function flash(big, sm) {
+    ensureStyle();
+    var d = document.createElement('div'); d.className = 'sdx-flash';
+    d.innerHTML = '<div class="big">' + big + '</div>' + (sm ? '<div class="sm">' + sm + '</div>' : '');
+    document.body.appendChild(d);
+    setTimeout(function () { if (d.parentNode) d.remove(); }, 1900);
+  }
+
+  // ════════ DAILY PUZZLE + STREAK ════════
+  function todayKey() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function dayNumber() { return Math.floor(Date.now() / 86400000); }
+  function dailyPuzzle() { return PUZZLES[dayNumber() % PUZZLES.length]; }
+  function dailyDoneToday() { return lsGet('sdc_daily_date', '') === todayKey(); }
+
+  function recordDailySolved() {
+    if (dailyDoneToday()) return jGet('sdc_daily_streak', 1);
+    var last = lsGet('sdc_daily_date', '');
+    var streak = parseInt(lsGet('sdc_daily_streak', '0'), 10) || 0;
+    var freezeUsed = lsGet('sdc_daily_freezedate', '');
+    if (last) {
+      var d1 = new Date(last + 'T00:00:00'), d2 = new Date(todayKey() + 'T00:00:00');
+      var gap = Math.round((d2 - d1) / 86400000);
+      if (gap === 1) streak += 1;
+      else if (gap === 2 && freezeUsed !== last) { streak += 1; lsSet('sdc_daily_freezedate', last); } // one-day forgiveness
+      else streak = 1;
+    } else streak = 1;
+    lsSet('sdc_daily_date', todayKey());
+    lsSet('sdc_daily_streak', String(streak));
+    return streak;
+  }
+
+  function openDaily() {
+    ensureStyle();
+    var pz = dailyPuzzle();
+    var ov = document.createElement('div'); ov.className = 'sdx-ov'; ov.id = 'sdx-daily';
+    ov.innerHTML =
+      '<button class="sdx-x" aria-label="Close">×</button>' +
+      '<div class="sdx-h"><span class="ember">DAILY</span> <span class="death">PUZZLE</span></div>' +
+      '<div class="sdx-sub">Mate in one. Same puzzle for everyone today. ' +
+      (dailyDoneToday() ? 'You already solved today\u2019s \u2014 here it is again.' : 'Solve it to keep your streak alive.') + '</div>' +
+      '<div class="sdx-pill">\uD83D\uDD25 Daily streak <b id="sdx-dstreak">' + (parseInt(lsGet('sdc_daily_streak', '0'), 10) || 0) + '</b></div>' +
+      '<div class="sdx-board" id="sdx-dboard"></div>' +
+      '<div class="sdx-msg" id="sdx-dmsg">' + (pz.label || 'Find the checkmate.') + '</div>' +
+      '<div class="sdx-btns"><button class="sdx-b ghost" id="sdx-dhint">Show solution</button>' +
+      '<button class="sdx-b primary" id="sdx-dplay">Play a game</button></div>';
+    document.body.appendChild(ov);
+    var host = ov.querySelector('#sdx-dboard');
+    rebuildDaily(host, pz, ov);
+    function close() { ov.remove(); refreshLobbyExtras(); }
+    ov.querySelector('.sdx-x').onclick = close;
+    ov.querySelector('#sdx-dhint').onclick = function () {
+      var m = ov.querySelector('#sdx-dmsg'); m.textContent = 'Solution: ' + pz.sol.join(' or '); m.className = 'sdx-msg ok';
+    };
+    ov.querySelector('#sdx-dplay').onclick = function () { close(); startQuickGame(); };
+  }
+  function rebuildDaily(host, pz, ov) {
+    buildBoard(host, pz.fen, function (san, c) {
+      var msg = ov.querySelector('#sdx-dmsg');
+      if (isMate(c)) {
+        var s = recordDailySolved(); ov.querySelector('#sdx-dstreak').textContent = s;
+        msg.textContent = 'Checkmate! \u2713  Streak: ' + s; msg.className = 'sdx-msg ok'; flash('SOLVED', 'Daily streak ' + s);
+      } else { msg.textContent = 'Not mate \u2014 reset and try again.'; msg.className = 'sdx-msg no'; rebuildDaily(host, pz, ov); }
+    }, {});
+  }
+
+  // ════════ SURVIVAL MODE (sudden-death puzzle streak) ════════
+  function shuffled(arr) { var a = arr.slice(); for (var i = a.length - 1; i > 0; i--) { var j = (Math.random() * (i + 1)) | 0; var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function openSurvival() {
+    ensureStyle();
+    var queue = shuffled(PUZZLES), idx = 0, score = 0, skipUsed = false;
+    var best = parseInt(lsGet('sdc_survival_best', '0'), 10) || 0;
+    var ov = document.createElement('div'); ov.className = 'sdx-ov'; ov.id = 'sdx-surv';
+    ov.innerHTML =
+      '<button class="sdx-x" aria-label="Close">×</button>' +
+      '<div class="sdx-h"><span class="death">SURVIVAL</span></div>' +
+      '<div class="sdx-sub">One mate-in-one after another. <b>One wrong move ends the run.</b> You get a single skip.</div>' +
+      '<div><span class="sdx-pill">Solved <b id="sdx-score">0</b></span><span class="sdx-pill">Best <b id="sdx-best">' + best + '</b></span></div>' +
+      '<div class="sdx-board" id="sdx-sboard"></div>' +
+      '<div class="sdx-msg" id="sdx-smsg">Find the checkmate.</div>' +
+      '<div class="sdx-btns"><button class="sdx-b ghost" id="sdx-skip">Skip (1)</button></div>';
+    document.body.appendChild(ov);
+    var host = ov.querySelector('#sdx-sboard');
+    function load() {
+      if (idx >= queue.length) queue = shuffled(PUZZLES).concat(queue), idx = idx; // loop endlessly
+      var pz = queue[idx];
+      ov.querySelector('#sdx-smsg').textContent = pz.label || 'Find the checkmate.';
+      ov.querySelector('#sdx-smsg').className = 'sdx-msg';
+      buildBoard(host, pz.fen, function (san, c) {
+        if (isMate(c)) {
+          score++; ov.querySelector('#sdx-score').textContent = score;
+          var m = ov.querySelector('#sdx-smsg'); m.textContent = 'Correct! Next \u2192'; m.className = 'sdx-msg ok';
+          idx++; setTimeout(load, 520);
+        } else { end(); }
+      }, {});
+    }
+    function end() {
+      var m = ov.querySelector('#sdx-smsg'); m.textContent = 'Wrong move \u2014 run over at ' + score + '.'; m.className = 'sdx-msg no';
+      if (score > best) { best = score; lsSet('sdc_survival_best', String(best)); ov.querySelector('#sdx-best').textContent = best; flash('NEW BEST', score + ' solved'); }
+      var board = ov.querySelector('#sdx-sboard'); if (board) board.style.pointerEvents = 'none';
+      var btns = ov.querySelector('.sdx-btns');
+      btns.innerHTML = '<button class="sdx-b primary" id="sdx-again">Play again</button><button class="sdx-b ghost" id="sdx-back">Back</button>';
+      btns.querySelector('#sdx-again').onclick = function () { ov.remove(); openSurvival(); };
+      btns.querySelector('#sdx-back').onclick = function () { ov.remove(); refreshLobbyExtras(); };
+    }
+    ov.querySelector('.sdx-x').onclick = function () { ov.remove(); refreshLobbyExtras(); };
+    ov.querySelector('#sdx-skip').onclick = function () {
+      if (skipUsed) return; skipUsed = true;
+      var sk = ov.querySelector('#sdx-skip'); sk.disabled = true; sk.textContent = 'Skip (0)'; sk.style.opacity = .4;
+      idx++; load();
+    };
+    load();
+  }
+
+  // ════════ BLUNDER PROTECTION (beginner guard) ════════
+  function guardOn() { return lsGet('sdc_guard', '1') === '1'; }
+  function setGuard(v) { lsSet('sdc_guard', v ? '1' : '0'); }
+  // worst material (in pawns) the side-to-move can win by an immediate capture (SEE-lite)
+  function worstHang(fenOppToMove) {
+    var c; try { c = mkChess(fenOppToMove); } catch (e) { return 0; }
+    var worst = 0, moves = c.moves({ verbose: true });
+    for (var i = 0; i < moves.length; i++) {
+      var m = moves[i];
+      var cap = (m.flags.indexOf('c') >= 0), ep = (m.flags.indexOf('e') >= 0);
+      if (!cap && !ep) continue;
+      var Pv = ep ? 1 : VAL(m.captured);
+      var Av = VAL(m.piece);
+      var t = mkChess(c.fen()); t.move({ from: m.from, to: m.to, promotion: 'q' });
+      var canRecap = false, rm = t.moves({ verbose: true });
+      for (var j = 0; j < rm.length; j++) { if (rm[j].to === m.to && (rm[j].flags.indexOf('c') >= 0 || rm[j].flags.indexOf('e') >= 0)) { canRecap = true; break; } }
+      var net = Pv - (canRecap ? Av : 0);
+      if (net > worst) worst = net;
+    }
+    return worst;
+  }
+  // returns true if move should be BLOCKED for a warning
+  function riskGuard(from, to, promo) {
+    if (!guardOn()) return false;
+    if (!S || !S.chess) return false;
+    var t, mv;
+    try { t = mkChess(S.chess.fen()); mv = t.move({ from: from, to: to, promotion: promo || 'q' }); } catch (e) { return false; }
+    if (!mv) return false;
+    if (isMate(t)) return false;                 // delivering mate is never a blunder
+    var myCapture = mv.captured ? VAL(mv.captured) : 0;
+    var hang = worstHang(t.fen());
+    if (hang - myCapture < 3) return false;      // net loss < a minor piece: allow
+    showGuard(from, to, promo, hang);
+    return true;
+  }
+  function showGuard(from, to, promo, hang) {
+    ensureStyle();
+    var g = document.createElement('div'); g.id = 'sdc-guard';
+    g.innerHTML = '<div class="gc"><h3>\u26A0 Risky move</h3><p>This looks like it hands over about <b>' + hang +
+      '</b> points of material \u2014 in Sudden Death that usually ends the game. Play it anyway?</p>' +
+      '<div class="row"><button class="play">Play it</button><button class="back">Pick another</button></div></div>';
+    document.body.appendChild(g);
+    g.querySelector('.play').onclick = function () { g.remove(); if (typeof executeMyMove === 'function') executeMyMove(from, to, promo, true); };
+    g.querySelector('.back').onclick = function () { g.remove(); };
+  }
+
+  // ════════ RETRY THE BLUNDER ════════
+  function openRetry() {
+    if (!S || !S._retryFen) { if (typeof toast === 'function') toast('No position to retry.'); return; }
+    ensureStyle();
+    var fen = S._retryFen, bad = S._retryBad || 'your move';
+    var ov = document.createElement('div'); ov.className = 'sdx-ov'; ov.id = 'sdx-retry';
+    ov.innerHTML =
+      '<button class="sdx-x" aria-label="Close">×</button>' +
+      '<div class="sdx-h"><span class="ember">RETRY</span> THE BLUNDER</div>' +
+      '<div class="sdx-sub">You played <b>' + bad + '</b> and it cost you the game. Same position \u2014 find a move that <b>doesn\u2019t</b> hang material.</div>' +
+      '<div class="sdx-board" id="sdx-rboard"></div>' +
+      '<div class="sdx-msg" id="sdx-rmsg">Your move.</div>' +
+      '<div class="sdx-btns"><button class="sdx-b primary" id="sdx-rplay">Play a new game</button></div>';
+    document.body.appendChild(ov);
+    var host = ov.querySelector('#sdx-rboard');
+    function attach() {
+      buildBoard(host, fen, function (san, c, ft) {
+        var hang = worstHang(c.fen());
+        var myCap = ft.captured ? VAL(ft.captured) : 0;
+        var msg = ov.querySelector('#sdx-rmsg');
+        if (hang - myCap < 3) {
+          msg.textContent = san + ' \u2014 solid. That holds the position. \u2713'; msg.className = 'sdx-msg ok'; flash('BETTER', 'No more blunder');
+        } else {
+          msg.textContent = san + ' still hangs material \u2014 try another.'; msg.className = 'sdx-msg no';
+          setTimeout(attach, 800);
+        }
+      }, {});
+    }
+    attach();
+    ov.querySelector('.sdx-x').onclick = function () { ov.remove(); };
+    ov.querySelector('#sdx-rplay').onclick = function () { ov.remove(); startQuickGame(); };
+  }
+
+  // ════════ CELEBRATIONS (rating high + win streak) ════════
+  function afterGameOver(iWon, ratings) {
+    try {
+      var newR = ratings && typeof ratings.new === 'number' ? ratings.new : null;
+      if (iWon && newR != null) {
+        var peak = parseInt(lsGet('sdc_peak', '0'), 10) || 0;
+        if (newR > peak && peak > 0) { flash('NEW PEAK', newR + ' rating'); }
+        if (newR > peak) lsSet('sdc_peak', String(newR));
+      }
+      var st = S && typeof S.streak === 'number' ? S.streak : 0;
+      if (iWon && (st === 3 || st === 5 || st === 10 || (st > 10 && st % 5 === 0))) {
+        flash(st + ' IN A ROW', 'Win streak');
+      }
+    } catch (e) {}
+  }
+
+  // record retry context when a blunder is detected (called from runVerdict hook)
+  function noteBlunder(fenBefore, badSan) { try { if (S) { S._retryFen = fenBefore; S._retryBad = badSan; } } catch (e) {} }
+
+  // ════════ start-a-game helpers ════════
+  function startQuickGame() {
+    try {
+      var modal = document.getElementById('result-modal'); if (modal) modal.classList.remove('show');
+      if (!S || !S.user) { if (S) S.pendingFindMatch = true; if (typeof show === 'function') show('s-lobby'); return; }
+      if (typeof wsSend === 'function') wsSend({ type: 'find_match' });
+      var btn = document.getElementById('btn-find'); if (btn) { btn.classList.add('searching'); btn.textContent = 'CANCEL'; }
+      var ss = document.getElementById('search-status'); if (ss) ss.innerHTML = 'Searching for opponent<span class="dot-anim"></span>';
+      if (typeof show === 'function') show('s-lobby');
+    } catch (e) {}
+  }
+
+  // ════════ LOBBY EXTRAS (mode buttons + comeback banner + guard toggle) ════════
+  function refreshLobbyExtras() {
+    var modes = document.getElementById('sdc-modes');
+    if (modes) {
+      var ds = parseInt(lsGet('sdc_daily_streak', '0'), 10) || 0;
+      var dbtn = document.getElementById('btn-daily');
+      if (dbtn) dbtn.innerHTML = (dailyDoneToday() ? '\u2713 Daily done' : '\u2605 Daily puzzle') + (ds > 0 ? ' \u00B7 \uD83D\uDD25' + ds : '');
+    }
+    var cb = document.getElementById('sdc-comeback');
+    if (cb) {
+      var dismissed = lsGet('sdc_cb_dismiss', '') === todayKey();
+      if (!dailyDoneToday() && !dismissed) {
+        var ds2 = parseInt(lsGet('sdc_daily_streak', '0'), 10) || 0;
+        cb.style.display = 'flex';
+        cb.querySelector('.cb-txt').innerHTML = ds2 > 0
+          ? 'Today\u2019s puzzle is ready \u2014 keep your <b>' + ds2 + '-day</b> streak alive.'
+          : 'Today\u2019s puzzle is ready. <b>Start a streak.</b>';
+      } else { cb.style.display = 'none'; }
+    }
+    var gt = document.getElementById('sdc-guard-toggle');
+    if (gt) gt.classList.toggle('on', guardOn());
+  }
+
+  function wireLobby() {
+    var d = document.getElementById('btn-daily'); if (d && !d._w) { d._w = 1; d.onclick = openDaily; }
+    var s = document.getElementById('btn-survival'); if (s && !s._w) { s._w = 1; s.onclick = openSurvival; }
+    var cb = document.getElementById('sdc-comeback');
+    if (cb && !cb._w) {
+      cb._w = 1;
+      var go = cb.querySelector('.cb-go'); if (go) go.onclick = openDaily;
+      var x = cb.querySelector('.cb-x'); if (x) x.onclick = function () { lsSet('sdc_cb_dismiss', todayKey()); cb.style.display = 'none'; };
+    }
+    var gt = document.getElementById('sdc-guard-toggle');
+    if (gt && !gt._w) { gt._w = 1; gt.onclick = function () { setGuard(!guardOn()); refreshLobbyExtras(); }; }
+    refreshLobbyExtras();
+  }
+
+  // ════════ FIRST-MATCH COACHMARK ════════
+  function maybeCoach() {
+    if (lsGet('sdc_coach_seen', '') === '1') return;
+    if (S && S.token) return;              // returning logged-in users skip
+    ensureStyle();
+    if (document.getElementById('sdc-coach')) return;
+    var c = document.createElement('div'); c.id = 'sdc-coach';
+    c.innerHTML = '<div class="cc"><h3>One move at a time</h3><p>Take your time \u2014 there\u2019s no rush on move one. Tap a piece and the <b style="color:#34D399">legal moves light up</b>. Remember: a single blunder ends the game on the spot.</p><button>Got it</button></div>';
+    document.body.appendChild(c);
+    c.querySelector('button').onclick = function () { lsSet('sdc_coach_seen', '1'); c.remove(); };
+  }
+
+  // ════════ wire result-modal buttons + Enter-to-rematch ════════
+  function wireModal() {
+    var retry = document.getElementById('btn-retry-blunder'); if (retry && !retry._w) { retry._w = 1; retry.onclick = function () { var m = document.getElementById('result-modal'); if (m) m.classList.remove('show'); openRetry(); }; }
+    var nopp = document.getElementById('btn-new-opp'); if (nopp && !nopp._w) { nopp._w = 1; nopp.onclick = startQuickGame; }
+  }
+  function showRetryButton() {
+    var b = document.getElementById('btn-retry-blunder');
+    if (b) b.style.display = (S && S._retryFen) ? 'block' : 'none';
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var m = document.getElementById('result-modal');
+    if (m && m.classList.contains('show')) { var r = document.getElementById('btn-rematch'); if (r) r.click(); }
+  });
+
+  // ════════ override show() to fire lobby/game hooks ════════
+  try {
+    if (typeof show === 'function') {
+      var _origShow = show;
+      show = function (id) {
+        _origShow(id);
+        if (id === 's-lobby') { wireLobby(); }
+        if (id === 's-game') { setTimeout(maybeCoach, 400); }
+      };
+    }
+  } catch (e) {}
+
+  // expose
+  window.SDCX = {
+    openDaily: openDaily, openSurvival: openSurvival, openRetry: openRetry,
+    riskGuard: riskGuard, afterGameOver: afterGameOver, noteBlunder: noteBlunder,
+    wireLobby: wireLobby, wireModal: wireModal, showRetryButton: showRetryButton,
+    refreshLobbyExtras: refreshLobbyExtras, guardOn: guardOn
+  };
+
+  // initial wiring (lobby may already be visible for auto-login users)
+  function boot() { ensureStyle(); wireLobby(); wireModal(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else setTimeout(boot, 0);
+})();

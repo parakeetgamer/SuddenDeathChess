@@ -69,6 +69,7 @@
   </div>
 
   <div class="lobby-body">
+    <div id="sdc-comeback" style="display:none"><span style="font-size:22px">★</span><span class="cb-txt"></span><button class="cb-go">Solve</button><button class="cb-x">×</button></div>
     <div class="lobby-main">
       <div class="lobby-hero">
         <div class="lobby-knight">♞</div>
@@ -82,7 +83,10 @@
         <button class="bot-btn" id="btn-bot">Play the Computer</button>
       </div>
 
-      <ins class="adsbygoogle ad" style="display:inline-block;width:728px;height:90px;max-width:95%" data-ad-client="ca-pub-7744016925761211" data-ad-slot="XXXXXXXXXX"></ins>
+      <div id="sdc-modes"><button id="btn-daily">★ Daily puzzle</button><button id="btn-survival">⚡ Survival</button></div>
+      <div id="sdc-guard-toggle"><span>Blunder warnings</span><span class="knob"></span></div>
+
+      <ins class="adsbygoogle ad" style="display:inline-block;width:728px;height:90px;max-width:95%" data-ad-client="ca-pub-7744016925761211" data-ad-slot="1409278998"></ins>
     </div>
   </div>
 </div>
@@ -179,8 +183,10 @@
       <div class="mgs-item"><div class="mgs-val" id="m-acc">—</div><div class="mgs-lbl">Accuracy</div></div>
       <div class="mgs-item"><div class="mgs-val" id="m-time">—</div><div class="mgs-lbl">Avg Time</div></div>
     </div>
+    <button class="btn-ghost" id="btn-retry-blunder" style="display:none;width:100%;margin-bottom:10px">↻ Retry the blunder</button>
     <div class="modal-btns">
-      <button class="btn-ember" id="btn-rematch">REMATCH</button>
+      <button class="btn-ember" id="btn-rematch" data-action="rematch">PLAY AGAIN</button>
+      <button class="btn-ghost" id="btn-new-opp">NEW OPPONENT</button>
       <button class="btn-ghost" id="btn-to-lobby">LOBBY</button>
     </div>
   </div>
