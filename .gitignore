@@ -6,3 +6,5 @@ data/
 *.db-wal
 .DS_Store
 *.bak-*
+*.backup
+sdc_bundle_v*.txt
