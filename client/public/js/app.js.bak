@@ -3108,7 +3108,22 @@ async function startRecording(btn) {
   REC.ext = (REC.mime.indexOf('webm') >= 0) ? 'webm' : 'mp4';
   REC.recorder.ondataavailable = (e) => { if (e.data && e.data.size) REC.chunks.push(e.data); };
   REC.recorder.onstop = () => finishRecording();
-  REC.recorder.start();
+  REC.recorder.start(1000);
+  // Mobile browsers dim/sleep the screen after ~20-30s of no touch (pausing
+  // rAF + the camera video) and throttle near-invisible video. Hold a screen
+  // wake lock (re-acquired on tab return) and re-play the cam if it stalls.
+  try {
+    if (navigator.wakeLock && navigator.wakeLock.request) {
+      REC._wakeReacq = function () { if (REC.active && document.visibilityState === 'visible') navigator.wakeLock.request('screen').then(function (w) { REC._wake = w; }).catch(function () {}); };
+      REC._wakeReacq();
+      document.addEventListener('visibilitychange', REC._wakeReacq);
+    }
+  } catch (e) {}
+  REC._camWatch = setInterval(function () {
+    if (!REC.active) return;
+    var v = REC.video;
+    if (v && (v.paused || v.ended)) { try { v.play().catch(function () {}); } catch (e) {} }
+  }, 800);
 
   if (btn) { btn.textContent = '\u25A0 Done'; btn.classList.add('cc-rec'); }
   toast('Recording\u2026 go make some content!');
@@ -3130,13 +3145,22 @@ function stopRecordingCleanup() {
   { const pv = document.getElementById('rec-preview'); if (pv) pv.remove(); }
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
   if (REC.video && REC.video.parentNode) REC.video.remove();
+  recStopKeepAlive();
   recTeardownAudio();
+}
+
+function recStopKeepAlive() {
+  if (REC._camWatch) { clearInterval(REC._camWatch); REC._camWatch = null; }
+  if (REC._wakeReacq) { document.removeEventListener('visibilitychange', REC._wakeReacq); REC._wakeReacq = null; }
+  try { if (REC._wake && REC._wake.release) REC._wake.release(); } catch (e) {}
+  REC._wake = null;
 }
 
 function finishRecording() {
   const blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
   if (REC.video && REC.video.parentNode) REC.video.remove();
+  recStopKeepAlive();
   recTeardownAudio();
   const url = URL.createObjectURL(blob);
   const fname = 'sudden-death-' + Date.now() + '.' + REC.ext;
