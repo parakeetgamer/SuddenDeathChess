@@ -2681,6 +2681,7 @@ function recLoadPieces() {
 }
 
 function recDrawFrame() {
+  if (REC._fpsGate) { var _fg = (window.performance && performance.now) ? performance.now() : Date.now(); if (_fg - (REC._lastFrame || 0) < REC._fpsGate) { if (REC.active) REC.raf = requestAnimationFrame(REC.drawFn || recDrawFrame); return; } REC._lastFrame = _fg; }
   const ctx = REC.ctx, W = 540, H = 960, now = Date.now();
   const pulse = 0.5 + 0.5 * Math.sin(now / 150);
 
@@ -2858,6 +2859,7 @@ function recDrawFrame() {
 }
 
 function recDrawFrameLandscape() {
+  if (REC._fpsGate) { var _fg = (window.performance && performance.now) ? performance.now() : Date.now(); if (_fg - (REC._lastFrame || 0) < REC._fpsGate) { if (REC.active) REC.raf = requestAnimationFrame(REC.drawFn || recDrawFrameLandscape); return; } REC._lastFrame = _fg; }
   const ctx = REC.ctx, W = 960, H = 540, now = Date.now();
   const pulse = 0.5 + 0.5 * Math.sin(now / 150);
   if (REC._prevJudging && !S.judging && !S.gameOver) REC._safeUntil = now + 1100;
@@ -3021,6 +3023,14 @@ function recDrawParticles(ctx) {
 
 async function startRecording(btn) {
   if (REC.active) return;
+  // Mobile devices can't run the live game + camera + 30fps composite + 4Mbps
+  // encode at once, so recordings freeze/lock up. On mobile, cut the load.
+  var _mob = false;
+  try { _mob = (window.matchMedia && matchMedia('(max-width: 820px)').matches) || /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); } catch (e) {}
+  REC._fps = _mob ? 24 : 30;
+  REC._bps = _mob ? 2500000 : 4000000;
+  REC._fpsGate = _mob ? 40 : 0;   // ms between drawn frames (~24fps) on mobile, 0 = uncapped
+  REC._lastFrame = 0;
   REC.format = REC.format || 'reels';
   REC.useCam = (REC.useCam !== false);
   REC.useMic = (REC.useMic !== false);
@@ -3068,7 +3078,7 @@ async function startRecording(btn) {
   REC.active = true;
   REC.drawFn();
 
-  try { REC.stream = REC.canvas.captureStream(30); }
+  try { REC.stream = REC.canvas.captureStream(REC._fps || 30); }
   catch(e) { toast('Recording blocked by the browser.'); stopRecordingCleanup(); return; }
   try {
     const ac = ga();
@@ -3097,7 +3107,7 @@ async function startRecording(btn) {
   REC.chunks = [];
   try {
     REC.recorder = REC.mime
-      ? new MediaRecorder(REC.stream, { mimeType: REC.mime, videoBitsPerSecond: 4000000 })
+      ? new MediaRecorder(REC.stream, { mimeType: REC.mime, videoBitsPerSecond: REC._bps || 4000000 })
       : new MediaRecorder(REC.stream);
   } catch(e) {
     try { REC.recorder = new MediaRecorder(REC.stream); }

@@ -2726,7 +2726,7 @@ function recDrawFrame() {
   let punch = 1;
   if (fx && fxT < 0.3) punch = 1 + 0.05 * (1 - fxT/0.3);
   ctx.save();
-  ctx.translate(W/2, H/2); ctx.scale(punch, punch); ctx.translate(-W/2, -H/2);
+  var BS = REC._recInset || 1; ctx.translate(W/2, H/2); ctx.scale(punch * BS, punch * BS); ctx.translate(-W/2, -H/2);
   ctx.translate(shx, shy);
   ctx.textBaseline = 'middle';
 
@@ -2854,6 +2854,11 @@ function recDrawFrame() {
   ctx.fillStyle = eg; ctx.fillRect(0,0,W,H);
 
   ctx.restore();
+  if (REC._recInset && REC._recInset < 1) {
+    var _mgn = (1 - REC._recInset) / 2;
+    ctx.strokeStyle = 'rgba(255,122,26,0.85)'; ctx.lineWidth = 3;
+    ctx.strokeRect(W * _mgn + 1.5, H * _mgn + 1.5, W * REC._recInset - 3, H * REC._recInset - 3);
+  }
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   if (REC.active) REC.raf = requestAnimationFrame(REC.drawFn || recDrawFrame);
 }
@@ -3070,6 +3075,7 @@ async function startRecording(btn) {
   REC.canvas.height = desktop ? 540 : 960;
   REC.ctx = REC.canvas.getContext('2d');
   REC.drawFn = desktop ? recDrawFrameLandscape : recDrawFrame;
+  REC._recInset = desktop ? 1 : 0.88;   // reels: draw content at 88% + border so IG's crop doesn't cut it
   REC._streak = 0; REC._prevPhase = null; REC._fx = null;
   REC.canvas.id = 'rec-preview';
   const pw = desktop ? 192 : 108, ph = desktop ? 108 : 192;
