@@ -4184,3 +4184,176 @@ function initAds() {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else setTimeout(boot, 0);
 })();
+
+
+/* ========================================================================
+   SDCREC - clip library (IndexedDB) + global recording control
+   Persists finished recordings, adds a "My Clips" gallery (download/delete),
+   and a floating REC indicator so you can stop from any screen. Self-contained;
+   wraps the existing start/stop/finishRecording without touching their bodies.
+   ======================================================================== */
+(function () {
+  'use strict';
+  if (window.SDCREC) return;
+
+  var DBNAME = 'sdc_clips', STORE = 'clips', CAP = 25;
+
+  function openDB() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open(DBNAME, 1);
+      r.onupgradeneeded = function () {
+        var d = r.result;
+        if (!d.objectStoreNames.contains(STORE)) {
+          var s = d.createObjectStore(STORE, { keyPath: 'id' });
+          s.createIndex('ts', 'ts', { unique: false });
+        }
+      };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function os(mode) { return openDB().then(function (d) { return d.transaction(STORE, mode).objectStore(STORE); }); }
+  function reqP(req) { return new Promise(function (res, rej) { req.onsuccess = function () { res(req.result); }; req.onerror = function () { rej(req.error); }; }); }
+
+  function allClips() {
+    return os('readonly').then(function (s) { return reqP(s.getAll()); })
+      .then(function (l) { l.sort(function (a, b) { return b.ts - a.ts; }); return l; })
+      .catch(function () { return []; });
+  }
+  function delClip(id) { return os('readwrite').then(function (s) { return reqP(s.delete(id)); }).catch(function () {}); }
+  function prune() {
+    return allClips().then(function (l) {
+      if (l.length <= CAP) return;
+      return os('readwrite').then(function (s) { l.slice(CAP).forEach(function (c) { try { s.delete(c.id); } catch (e) {} }); });
+    });
+  }
+  function saveClip(blob, ext, fmt) {
+    var rec = { id: 'clip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), ts: Date.now(),
+      ext: ext || 'webm', fmt: fmt || 'reels', mime: blob.type || 'video/webm', size: blob.size || 0, blob: blob };
+    return os('readwrite').then(function (s) { return reqP(s.add(rec)); }).then(function () { return prune(); }).then(function () { return rec; })
+      .catch(function (e) { try { toast('Could not save clip - device storage may be full.'); } catch (_) {} throw e; });
+  }
+
+  function curScreen() { var el = document.querySelector('.screen.active'); return el ? el.id : ''; }
+  function fmtSize(n) { if (!n) return ''; return n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
+  function fmtWhen(ts) { try { return new Date(ts).toLocaleString(); } catch (e) { return ''; } }
+  function fname(c) { return 'sudden-death-' + c.ts + '.' + (c.ext || 'webm'); }
+
+  function injectStyle() {
+    if (document.getElementById('sdcrec-style')) return;
+    var css =
+      '#sdcrec-ov{position:fixed;inset:0;z-index:3400;background:rgba(9,11,15,.96);display:flex;flex-direction:column;padding:22px 16px 30px;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#F5F1EA;}' +
+      '#sdcrec-ov .sr-top{display:flex;align-items:center;justify-content:space-between;max-width:760px;width:100%;margin:0 auto 14px;}' +
+      '#sdcrec-ov .sr-h{font-family:Antonio,sans-serif;font-weight:700;letter-spacing:2px;font-size:26px;}' +
+      '#sdcrec-ov .sr-h .ember{color:#FF7A1A;}' +
+      '#sdcrec-ov .sr-x{background:none;border:none;color:#9aa;font-size:30px;line-height:1;cursor:pointer;}' +
+      '#sdcrec-ov .sr-grid{max-width:760px;width:100%;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;}' +
+      '#sdcrec-ov .sr-card{background:#14181F;border:1px solid #2A2F37;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;}' +
+      '#sdcrec-ov .sr-card video{width:100%;background:#000;display:block;aspect-ratio:9/16;object-fit:contain;}' +
+      '#sdcrec-ov .sr-card.desktop video{aspect-ratio:16/9;}' +
+      '#sdcrec-ov .sr-meta{font-family:"JetBrains Mono",monospace;font-size:10px;color:#8B92A0;padding:8px 10px 2px;letter-spacing:.5px;}' +
+      '#sdcrec-ov .sr-row{display:flex;gap:6px;padding:8px 10px 10px;}' +
+      '#sdcrec-ov .sr-b{flex:1;border:none;border-radius:7px;padding:9px;font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:14px;cursor:pointer;text-align:center;text-decoration:none;}' +
+      '#sdcrec-ov .sr-dl{background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;}' +
+      '#sdcrec-ov .sr-del{background:transparent;color:#E11D2E;border:1px solid rgba(225,29,46,.5);flex:none;padding:9px 12px;}' +
+      '#sdcrec-ov .sr-empty{max-width:600px;margin:60px auto;text-align:center;color:#8B92A0;font-size:15px;line-height:1.6;}' +
+      '#rec-hud{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:3500;display:none;align-items:center;gap:12px;background:rgba(20,12,12,.92);border:1px solid rgba(225,29,46,.6);border-radius:999px;padding:8px 10px 8px 16px;box-shadow:0 10px 30px rgba(0,0,0,.5);}' +
+      '#rec-hud.on{display:flex;}' +
+      '#rec-hud .dot{width:11px;height:11px;border-radius:50%;background:#E11D2E;animation:sdcrecBlink 1s steps(2,start) infinite;}' +
+      '#rec-hud .t{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;color:#F5F1EA;min-width:44px;}' +
+      '#rec-hud .stop{background:#E11D2E;color:#fff;border:none;border-radius:999px;padding:8px 16px;font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:14px;cursor:pointer;}' +
+      '@keyframes sdcrecBlink{50%{opacity:.25}}';
+    var st = document.createElement('style'); st.id = 'sdcrec-style'; st.textContent = css; document.head.appendChild(st);
+  }
+
+  var _urls = [];
+  function revokeAll() { _urls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} }); _urls = []; }
+  function closeGallery() { var o = document.getElementById('sdcrec-ov'); if (o) o.remove(); revokeAll(); }
+  function openGallery() {
+    injectStyle();
+    var ex = document.getElementById('sdcrec-ov'); if (ex) ex.remove(); revokeAll();
+    var ov = document.createElement('div'); ov.id = 'sdcrec-ov';
+    ov.innerHTML = '<div class="sr-top"><div class="sr-h">MY <span class="ember">CLIPS</span></div><button class="sr-x" aria-label="Close">\u00D7</button></div><div class="sr-grid" id="sr-grid"></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('.sr-x').onclick = closeGallery;
+    var grid = ov.querySelector('#sr-grid');
+    allClips().then(function (list) {
+      if (!list.length) {
+        grid.outerHTML = '<div class="sr-empty">No clips yet.<br>Start a match, open <b>Create Content</b> in the game sidebar and hit record. Your clips land here to download anytime.</div>';
+        return;
+      }
+      list.forEach(function (c) {
+        var url = URL.createObjectURL(c.blob); _urls.push(url);
+        var card = document.createElement('div'); card.className = 'sr-card' + (c.fmt === 'desktop' ? ' desktop' : '');
+        card.innerHTML =
+          '<video src="' + url + '" controls playsinline preload="metadata"></video>' +
+          '<div class="sr-meta">' + fmtWhen(c.ts) + (c.size ? ' \u00B7 ' + fmtSize(c.size) : '') + '</div>' +
+          '<div class="sr-row"><a class="sr-b sr-dl" href="' + url + '" download="' + fname(c) + '">\u2B07 Download</a>' +
+          '<button class="sr-b sr-del" data-id="' + c.id + '">Delete</button></div>';
+        grid.appendChild(card);
+        card.querySelector('.sr-del').onclick = function () {
+          delClip(c.id).then(function () { try { URL.revokeObjectURL(url); } catch (e) {} card.remove(); if (!grid.children.length) closeGallery(); });
+        };
+      });
+    });
+  }
+
+  // ---- global stop HUD ----
+  var hudTimer = null, hudStart = 0;
+  function hudEl() {
+    var h = document.getElementById('rec-hud');
+    if (!h) {
+      injectStyle();
+      h = document.createElement('div'); h.id = 'rec-hud';
+      h.innerHTML = '<span class="dot"></span><span class="t" id="rec-hud-t">0:00</span><button class="stop">\u25A0 Stop</button>';
+      document.body.appendChild(h);
+      h.querySelector('.stop').onclick = function () {
+        if (typeof REC === 'undefined' || !REC.active) return;
+        var b = document.getElementById('cc-go') || document.createElement('button');
+        try { stopRecording(b); } catch (e) {}
+      };
+    }
+    return h;
+  }
+  function hudTick() {
+    var t = document.getElementById('rec-hud-t'); if (!t) return;
+    var s = Math.max(0, Math.floor((Date.now() - hudStart) / 1000));
+    t.textContent = Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+  }
+  function hudShow() { var h = hudEl(); hudStart = Date.now(); hudTick(); if (hudTimer) clearInterval(hudTimer); hudTimer = setInterval(hudTick, 500); h.classList.add('on'); }
+  function hudHide() { var h = document.getElementById('rec-hud'); if (h) h.classList.remove('on'); if (hudTimer) { clearInterval(hudTimer); hudTimer = null; } }
+
+  // ---- wrap recorder lifecycle (persist + HUD), bodies untouched ----
+  if (typeof window.finishRecording === 'function') {
+    var _finish = window.finishRecording;
+    window.finishRecording = function () {
+      try {
+        var blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
+        saveClip(blob, REC.ext, REC.format).then(function () { if (curScreen() !== 's-game') openGallery(); }).catch(function () {});
+      } catch (e) {}
+      return _finish.apply(this, arguments);
+    };
+  }
+  if (typeof window.startRecording === 'function') {
+    var _start = window.startRecording;
+    window.startRecording = function () {
+      var p = _start.apply(this, arguments);
+      Promise.resolve(p).then(function () { if (typeof REC !== 'undefined' && REC.active) hudShow(); }).catch(function () {});
+      return p;
+    };
+  }
+  if (typeof window.stopRecording === 'function') {
+    var _stop = window.stopRecording;
+    window.stopRecording = function () { hudHide(); return _stop.apply(this, arguments); };
+  }
+  if (typeof window.stopRecordingCleanup === 'function') {
+    var _clean = window.stopRecordingCleanup;
+    window.stopRecordingCleanup = function () { hudHide(); return _clean.apply(this, arguments); };
+  }
+
+  function wireBtn() { var b = document.getElementById('btn-my-clips'); if (b && !b._sr) { b._sr = 1; b.onclick = openGallery; } }
+  window.SDCREC = { open: openGallery, save: saveClip };
+  function boot() { injectStyle(); wireBtn(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else setTimeout(boot, 0);
+})();

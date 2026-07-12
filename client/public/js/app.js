@@ -2730,11 +2730,13 @@ function recDrawFrame() {
   ctx.textBaseline = 'middle';
 
   const camH = 280;
+  let camJx = 0, camJy = 0, camZoom = 1;
+  if (phase === 'judging') { const camAmp = 7; camJx = (Math.random()-0.5)*2*camAmp; camJy = (Math.random()-0.5)*2*camAmp; camZoom = 1.06; }
   if (REC.video && REC.video.videoWidth) {
     const v = REC.video, vw = v.videoWidth, vh = v.videoHeight;
-    const scale = Math.max(W/vw, camH/vh), dw = vw*scale, dh = vh*scale;
+    const scale = Math.max(W/vw, camH/vh) * camZoom, dw = vw*scale, dh = vh*scale;
     ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,camH); ctx.clip();
-    ctx.drawImage(v, (W-dw)/2, (camH-dh)/2, dw, dh); ctx.restore();
+    ctx.drawImage(v, (W-dw)/2 + camJx, (camH-dh)/2 + camJy, dw, dh); ctx.restore();
   } else { ctx.fillStyle = '#191D24'; ctx.fillRect(0,0,W,camH); }
 
   if ((REC._streak||0) > 0) {
@@ -2893,11 +2895,13 @@ function recDrawFrameLandscape() {
   ctx.textBaseline = 'middle';
 
   const camX = 24, camY = 24, camW = 410, camH = 230;
+  let camJx = 0, camJy = 0, camZoom = 1;
+  if (phase === 'judging') { const camAmp = 6; camJx = (Math.random()-0.5)*2*camAmp; camJy = (Math.random()-0.5)*2*camAmp; camZoom = 1.06; }
   if (REC.video && REC.video.videoWidth) {
     const v = REC.video, vw = v.videoWidth, vh = v.videoHeight;
-    const scale = Math.max(camW / vw, camH / vh), dw = vw * scale, dh = vh * scale;
+    const scale = Math.max(camW / vw, camH / vh) * camZoom, dw = vw * scale, dh = vh * scale;
     ctx.save(); ctx.beginPath(); ctx.rect(camX, camY, camW, camH); ctx.clip();
-    ctx.drawImage(v, camX + (camW - dw) / 2, camY + (camH - dh) / 2, dw, dh); ctx.restore();
+    ctx.drawImage(v, camX + (camW - dw) / 2 + camJx, camY + (camH - dh) / 2 + camJy, dw, dh); ctx.restore();
     ctx.strokeStyle = '#FF7A1A'; ctx.lineWidth = 3; ctx.strokeRect(camX, camY, camW, camH);
   } else {
     ctx.fillStyle = '#14171C'; ctx.fillRect(camX, camY, camW, camH);
