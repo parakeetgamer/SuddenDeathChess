@@ -3079,7 +3079,7 @@ async function startRecording(btn) {
   REC._streak = 0; REC._prevPhase = null; REC._fx = null;
   REC.canvas.id = 'rec-preview';
   const pw = desktop ? 192 : 108, ph = desktop ? 108 : 192;
-  REC.canvas.style.cssText = 'position:fixed;top:70px;left:14px;width:' + pw + 'px;height:' + ph + 'px;z-index:1450;border:2px solid #FF7A1A;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.55);background:#000';
+  REC.canvas.style.cssText = 'position:fixed;bottom:88px;left:14px;width:' + pw + 'px;height:' + ph + 'px;z-index:1450;border:2px solid #FF7A1A;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.55);background:#000';
   document.body.appendChild(REC.canvas);
   REC.active = true;
   REC.drawFn();
@@ -3712,7 +3712,7 @@ function showTutorial() {
   }
 })();
 
-maybeShowTutorial();
+/* how-to-play tutorial removed */
 
 // ══════════════════════════════════════════
 // FX2 — EXPANDED EFFECT LIBRARY
@@ -4409,4 +4409,119 @@ function initAds() {
   function boot() { injectStyle(); wireBtn(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else setTimeout(boot, 0);
+})();
+
+
+/* ========================================================================
+   SDCDOCK - one persistent recorder dock on every screen.
+   Consolidates Create Content + My Clips + record settings + timer into a
+   single small fixed cluster (bottom-right). Reuses the existing start/stop
+   and clip gallery; hides the old game-sidebar panel, the lobby clips button,
+   and the standalone stop pill so there's exactly one place for all of it.
+   ======================================================================== */
+(function () {
+  'use strict';
+  if (window.SDCDOCK) return;
+
+  function injectCss() {
+    if (document.getElementById('sdcdock-style')) return;
+    var s = document.createElement('style'); s.id = 'sdcdock-style';
+    s.textContent =
+      '#cc-panel,#btn-my-clips,#rec-hud{display:none !important;}' +
+      '#sdcdock{position:fixed;right:14px;bottom:14px;z-index:3600;display:flex;align-items:center;gap:8px;background:rgba(16,17,22,.86);border:1px solid #2A2F37;border-radius:999px;padding:6px 8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}' +
+      '#sdcdock button{border:none;cursor:pointer;font-family:inherit;}' +
+      '#sdcdock .dk-ico{width:34px;height:34px;border-radius:50%;background:#191D24;color:#C8CDD6;font-size:15px;display:flex;align-items:center;justify-content:center;}' +
+      '#sdcdock .dk-ico:hover{background:#242932;}' +
+      '#sdcdock .dk-rec{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;border-radius:999px;padding:8px 14px;font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:13px;}' +
+      '#sdcdock .dk-rec.on{background:#E11D2E;color:#fff;}' +
+      '#sdcdock .dk-rec .dot{width:9px;height:9px;border-radius:50%;background:#0E1116;}' +
+      '#sdcdock .dk-rec.on .dot{background:#fff;animation:sdcdockBlink 1s steps(2,start) infinite;}' +
+      '#sdcdock .dk-t{font-family:"JetBrains Mono",monospace;font-size:12px;}' +
+      '@keyframes sdcdockBlink{50%{opacity:.2}}' +
+      '#sdcdock-cfg{position:fixed;right:14px;bottom:66px;z-index:3600;display:none;flex-direction:column;gap:9px;background:#14181F;border:1px solid #2A2F37;border-radius:12px;padding:12px;width:210px;box-shadow:0 12px 32px rgba(0,0,0,.5);}' +
+      '#sdcdock-cfg.on{display:flex;}' +
+      '#sdcdock-cfg .row{display:flex;align-items:center;justify-content:space-between;}' +
+      '#sdcdock-cfg .lbl{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:1px;color:#C8CDD6;text-transform:uppercase;}' +
+      '#sdcdock-cfg .seg{display:flex;gap:4px;background:#0E1116;border:1px solid #2A2F37;border-radius:8px;padding:3px;}' +
+      '#sdcdock-cfg .seg button{flex:1;background:none;color:#8B92A0;font-size:9px;letter-spacing:1px;padding:6px 2px;border-radius:6px;text-transform:uppercase;font-family:"JetBrains Mono",monospace;}' +
+      '#sdcdock-cfg .seg button.on{background:#FF7A1A;color:#0E1116;font-weight:700;}' +
+      '#sdcdock-cfg .sw{width:38px;height:21px;border-radius:11px;background:#3A3F47;position:relative;flex:none;}' +
+      '#sdcdock-cfg .sw::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .2s;}' +
+      '#sdcdock-cfg .sw.on{background:#34D399;}#sdcdock-cfg .sw.on::after{left:19px;}';
+    document.head.appendChild(s);
+  }
+
+  var recBtn, tEl, cfg, recStart = 0, wasActive = false;
+
+  function build() {
+    if (document.getElementById('sdcdock')) return;
+    injectCss();
+    var dock = document.createElement('div'); dock.id = 'sdcdock';
+    dock.innerHTML =
+      '<button class="dk-ico" id="dk-cfg" title="Recording settings">\u2699</button>' +
+      '<button class="dk-ico" id="dk-clips" title="My Clips">\uD83C\uDFAC</button>' +
+      '<button class="dk-rec" id="dk-rec"><span class="dot"></span>' +
+        '<span class="dk-lbl">Create Content</span>' +
+        '<span class="dk-t" id="dk-t" style="display:none"></span></button>';
+    document.body.appendChild(dock);
+
+    cfg = document.createElement('div'); cfg.id = 'sdcdock-cfg';
+    cfg.innerHTML =
+      '<div class="seg" id="dk-fmt"><button data-fmt="reels">Reels 9:16</button><button data-fmt="desktop">Desktop</button></div>' +
+      '<div class="row"><span class="lbl">Camera</span><button class="sw" id="dk-cam"></button></div>' +
+      '<div class="row"><span class="lbl">Mic</span><button class="sw" id="dk-mic"></button></div>';
+    document.body.appendChild(cfg);
+
+    recBtn = document.getElementById('dk-rec');
+    tEl = document.getElementById('dk-t');
+
+    document.getElementById('dk-clips').onclick = function () {
+      if (window.SDCREC && SDCREC.open) SDCREC.open();
+      else if (typeof openGallery === 'function') openGallery();
+    };
+    document.getElementById('dk-cfg').onclick = function () { syncCfg(); cfg.classList.toggle('on'); };
+    recBtn.onclick = function () {
+      if (typeof REC !== 'undefined' && REC.active) {
+        try { stopRecording(document.getElementById('cc-go') || document.createElement('button')); } catch (e) {}
+      } else {
+        cfg.classList.remove('on');
+        try { startRecording(document.createElement('button')); } catch (e) {}
+      }
+    };
+    cfg.querySelectorAll('#dk-fmt button').forEach(function (b) {
+      b.onclick = function () { if (typeof REC !== 'undefined') { REC.format = b.getAttribute('data-fmt'); } syncCfg(); };
+    });
+    document.getElementById('dk-cam').onclick = function () { if (typeof REC !== 'undefined') { REC.useCam = (REC.useCam === false); } syncCfg(); };
+    document.getElementById('dk-mic').onclick = function () { if (typeof REC !== 'undefined') { REC.useMic = (REC.useMic === false); } syncCfg(); };
+
+    syncCfg(); tick(); setInterval(tick, 500);
+  }
+
+  function syncCfg() {
+    if (typeof REC === 'undefined' || !cfg) return;
+    var fmt = REC.format || 'reels';
+    cfg.querySelectorAll('#dk-fmt button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-fmt') === fmt); });
+    var cam = document.getElementById('dk-cam'); if (cam) cam.classList.toggle('on', REC.useCam !== false);
+    var mic = document.getElementById('dk-mic'); if (mic) mic.classList.toggle('on', REC.useMic !== false);
+  }
+
+  function tick() {
+    var active = (typeof REC !== 'undefined' && REC.active);
+    if (active && !wasActive) recStart = Date.now();
+    if (!active && wasActive) { setTimeout(function () { if (window.SDCREC && SDCREC.open) SDCREC.open(); }, 650); }
+    wasActive = active;
+    if (!recBtn) return;
+    var lbl = recBtn.querySelector('.dk-lbl');
+    if (active) {
+      recBtn.classList.add('on'); lbl.style.display = 'none'; tEl.style.display = 'inline';
+      var s = Math.max(0, Math.floor((Date.now() - recStart) / 1000));
+      tEl.textContent = Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2) + '  \u25A0';
+    } else {
+      recBtn.classList.remove('on'); lbl.style.display = 'inline'; lbl.textContent = 'Create Content'; tEl.style.display = 'none';
+    }
+  }
+
+  window.SDCDOCK = { build: build };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
+  else setTimeout(build, 0);
 })();
