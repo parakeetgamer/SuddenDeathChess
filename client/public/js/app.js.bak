@@ -3041,8 +3041,15 @@ async function startRecording(btn) {
   REC.video = null;
   if (REC.useCam && REC.userStream && REC.userStream.getVideoTracks().length) {
     REC.video = document.createElement('video');
+    REC.video.id = 'rec-cam-src';
     REC.video.muted = true; REC.video.playsInline = true; REC.video.autoplay = true;
+    REC.video.setAttribute('muted', ''); REC.video.setAttribute('playsinline', '');
+    // Keep the element in the render tree so the browser never throttles/pauses
+    // its frame decoding -- a detached / display:none <video> freezes the camera
+    // in the recorded reel. 2px + near-zero opacity keeps it live but invisible.
+    REC.video.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1;';
     REC.video.srcObject = REC.userStream;
+    document.body.appendChild(REC.video);
     try { await REC.video.play(); } catch(e) {}
   }
 
@@ -3122,12 +3129,14 @@ function stopRecordingCleanup() {
   if (REC.raf) cancelAnimationFrame(REC.raf);
   { const pv = document.getElementById('rec-preview'); if (pv) pv.remove(); }
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
+  if (REC.video && REC.video.parentNode) REC.video.remove();
   recTeardownAudio();
 }
 
 function finishRecording() {
   const blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
+  if (REC.video && REC.video.parentNode) REC.video.remove();
   recTeardownAudio();
   const url = URL.createObjectURL(blob);
   const fname = 'sudden-death-' + Date.now() + '.' + REC.ext;
