@@ -4382,7 +4382,7 @@ function initAds() {
     window.finishRecording = function () {
       try {
         var blob = new Blob(REC.chunks, { type: REC.mime || 'video/webm' });
-        saveClip(blob, REC.ext, REC.format).then(function () { if (curScreen() !== 's-game') openGallery(); }).catch(function () {});
+        saveClip(blob, REC.ext, REC.format).catch(function () {});
       } catch (e) {}
       return _finish.apply(this, arguments);
     };
@@ -4508,7 +4508,7 @@ function initAds() {
   function tick() {
     var active = (typeof REC !== 'undefined' && REC.active);
     if (active && !wasActive) recStart = Date.now();
-    if (!active && wasActive) { setTimeout(function () { if (window.SDCREC && SDCREC.open) SDCREC.open(); }, 650); }
+    if (!active && wasActive) { try { toast('Clip saved to My Clips'); } catch (e) {} }
     wasActive = active;
     if (!recBtn) return;
     var lbl = recBtn.querySelector('.dk-lbl');
