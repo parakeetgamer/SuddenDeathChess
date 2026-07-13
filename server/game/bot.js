@@ -80,6 +80,7 @@ class BotPlayer {
     this.strength = this.rating + 500;        // bot plays ~500 Elo above the rating it shows
     this.blunderChance = arch.blunder * 0.35; // tougher: rarely gifts a move
     this.searchDepth = 2;                      // 2-ply + alpha-beta (cheap endgames go deeper)
+    this.thinkMs = 500;                        // SDCX_HARDER_BOTS_V1: default engine think time (ms)
     this.capWeight = arch.capWeight; // how much it favors captures/aggression
     this.active = true;
     console.log('[BOT] created', this.name, '(' + arch.label + ')',
@@ -96,7 +97,7 @@ class BotPlayer {
 
   scheduleMove() {
     if (!this.active || this.session.over) return;
-    const reserve = this.useStockfish ? 700 : 0;
+    const reserve = this.useStockfish ? ((this.thinkMs || 500) + 300) : 0;
     const delay = Math.min(4800 - reserve, 800 + Math.random() * Math.random() * 4500); // human-ish, capped under the 5s clock
     setTimeout(() => {
       Promise.resolve().then(() => this.makeMove()).catch((e) => {
@@ -174,7 +175,7 @@ class BotPlayer {
       if (Math.random() < p) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
     }
     let uci = null;
-    try { uci = await getBotMove(this.chess.fen(), elo, 400); } catch (e) { uci = null; }
+    try { uci = await getBotMove(this.chess.fen(), elo, this.thinkMs || 500); } catch (e) { uci = null; }
     if (!uci || uci.length < 4) return null;
     const from = uci.slice(0, 2), to = uci.slice(2, 4), promo = uci[4] || 'q';
     const match = legalMoves.find(m => m.from === from && m.to === to);

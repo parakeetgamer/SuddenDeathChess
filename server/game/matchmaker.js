@@ -220,8 +220,9 @@ function startBotGame(ws, opts) {
   if (opts && opts.rating) {
     const R = Math.max(500, Math.min(3000, Math.round(opts.rating)));
     bot.rating = R; bot.name = 'CPU'; bot.strength = R + 300;
-    bot.blunderChance = Math.max(0, Math.min(0.5, 0.5 * (1 - (R - 500) / 2500)));
+    bot.blunderChance = Math.max(0, Math.min(0.22, 0.22 * (1 - (R - 500) / 2500))); // SDCX_HARDER_BOTS_V1
     bot.searchDepth = R < 1000 ? 1 : (R < 2000 ? 2 : 3);
+    bot.thinkMs = R >= 2300 ? 1200 : R >= 1800 ? 900 : R >= 1200 ? 650 : 450;
     bot.useStockfish = true; bot.elo = R;
     try { require('./stockfish').loadEngine(); } catch (e) {}
   } else if (human.guest) {

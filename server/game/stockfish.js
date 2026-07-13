@@ -52,9 +52,21 @@ function getBotMove(fen, elo, movetime) {
         }
       };
       engine.addMessageListener(onLine);
-      const E = Math.max(1320, Math.min(3190, Math.round(elo || 1500)));
-      engine.onCustomMessage('setoption name UCI_LimitStrength value true');
-      engine.onCustomMessage('setoption name UCI_Elo value ' + E);
+      // SDCX_HARDER_BOTS_V1: Stockfish's UCI_Elo plays well below its nominal
+      // number, so compensate above club level and let the top bots off the
+      // leash entirely (full strength).
+      const target = Math.round(elo || 1500);
+      if (target >= 2300) {
+        engine.onCustomMessage('setoption name UCI_LimitStrength value false');
+      } else if (target >= 1500) {
+        const E = Math.max(1320, Math.min(2850, target + 400));
+        engine.onCustomMessage('setoption name UCI_LimitStrength value true');
+        engine.onCustomMessage('setoption name UCI_Elo value ' + E);
+      } else {
+        const E = Math.max(1320, Math.min(3190, target));
+        engine.onCustomMessage('setoption name UCI_LimitStrength value true');
+        engine.onCustomMessage('setoption name UCI_Elo value ' + E);
+      }
       engine.onCustomMessage('position fen ' + fen);
       engine.onCustomMessage('go movetime ' + mt);
       setTimeout(() => {
