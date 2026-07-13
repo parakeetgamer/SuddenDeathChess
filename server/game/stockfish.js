@@ -63,7 +63,7 @@ function getBotMove(fen, elo, movetime) {
         engine.onCustomMessage('setoption name UCI_LimitStrength value true');
         engine.onCustomMessage('setoption name UCI_Elo value ' + E);
       } else {
-        const E = Math.max(1320, Math.min(3190, target));
+        const E = Math.max(1320, Math.min(3190, target + 300)); // SDCX_HARDER_BOTS_V2
         engine.onCustomMessage('setoption name UCI_LimitStrength value true');
         engine.onCustomMessage('setoption name UCI_Elo value ' + E);
       }
