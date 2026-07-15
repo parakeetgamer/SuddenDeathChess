@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sudden Death Chess — Win or Die Fast</title>
+<meta name="description" content="One blunder ends the game instantly. Real-time multiplayer chess with a 10-second timer and live Elo rating.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/main.css">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7744016925761211" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div id="flash"></div>
+<div id="toast"></div>
+
+<!-- ══ LOGIN ══ -->
+<div id="s-login" class="screen active">
+  <div class="login-grid"></div>
+  <div class="login-card">
+    <div class="brand-mark">
+      <div class="knight-icon">♞</div>
+      <div class="brand-text"><span class="ember">SUDDEN</span><span class="death">DEATH</span></div>
+    </div>
+    <div class="brand-sub">One blunder. Game over. No mercy.</div>
+
+    <div id="lm-label" class="field-label">Sign In</div>
+    <div class="field">
+      <div class="field-label">Username</div>
+      <input class="inp" id="inp-user" type="text" placeholder="your_username" maxlength="20" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <div class="field-label">Password</div>
+      <input class="inp" id="inp-pass" type="password" placeholder="••••••••">
+    </div>
+    <div class="field" id="confirm-field" style="display:none">
+      <div class="field-label">Confirm Password</div>
+      <input class="inp" id="inp-confirm" type="password" placeholder="••••••••">
+    </div>
+    <div class="err-msg" id="err-msg"></div>
+    <button class="btn-ember" id="btn-auth">PLAY NOW</button>
+    <div class="login-toggle">
+      <span id="toggle-text">No account?</span>
+      <a id="btn-toggle"> Create one →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LOBBY ══ -->
+<div id="s-lobby" class="screen">
+  <div class="nav">
+    <div class="nav-brand">
+      <div class="nav-knight">♞</div>
+      <div class="nav-wordmark"><span class="ember">SUDDEN</span><span class="death">DEATH</span></div>
+    </div>
+    <div class="nav-stats">
+      <div class="nav-stat"><span class="ns-label">Online</span><span class="ns-val ember" id="stat-online">—</span></div>
+      <div class="nav-stat"><span class="ns-label">My games</span><span class="ns-val" id="stat-mygames">0</span></div>
+      <div class="nav-stat"><span class="ns-label">Win streak</span><span class="ns-val" id="stat-streak">0</span></div>
+    </div>
+    <div class="nav-right">
+      <div class="nav-user" id="nav-user-btn">
+        <span class="nav-username" id="nav-uname">—</span>
+        <span class="nav-rating" id="nav-rating">1200</span>
+      </div>
+      <div class="ad" style="width:160px;height:36px;">AD</div>
+    </div>
+  </div>
+
+  <div class="lobby-body">
+    <div class="lobby-main">
+      <div class="lobby-hero">
+        <div class="lobby-knight">♞</div>
+        <div class="lobby-title"><span class="ember">SUDDEN</span><br><span class="death">DEATH</span><br><span class="ember">CHESS</span></div>
+        <div class="lobby-tagline">One wrong move = instant loss</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <button class="find-btn" id="btn-find">FIND MATCH</button>
+        <div class="search-status" id="search-status"> </div>
+        <button class="bot-btn" id="btn-bot">Play the Computer</button>
+        <button class="clips-btn" id="btn-my-clips">&#127916; My Clips</button>
+      </div>
+
+
+      <ins class="adsbygoogle ad" style="display:inline-block;width:728px;height:90px;max-width:95%" data-ad-client="ca-pub-7744016925761211" data-ad-slot="1409278998"></ins>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GAME ══ -->
+<div id="s-game" class="screen">
+  <div class="game-nav">
+    <div class="game-nav-brand">
+      <div class="game-nav-knight">♞</div>
+      <div class="game-nav-wordmark"><span class="ember">S</span><span class="death">D</span>C</div>
+    </div>
+    <div class="game-status-pill" id="game-status">Connecting...</div>
+    <div class="ad" style="width:180px;height:36px;">AD</div>
+  </div>
+
+  <div class="game-body">
+    <div class="g-left">
+      <div class="gs">
+        <div class="g-label">Opponent</div>
+        <div class="pblock" id="block-opp">
+          <div class="pc" id="g-opp-color">⬛ Black</div>
+          <div class="pn" id="g-opp-name">—</div>
+          <div class="pr" id="g-opp-rating">—</div>
+        </div>
+      </div>
+      <div class="gs" style="flex:1">
+        <div style="display:none">
+          <div class="eval-white" id="eval-fill" style="height:50%"></div>
+          <div class="eval-num" id="eval-num">0.0</div>
+          <div class="bm-track"><div class="bm-fill" id="bm-fill"></div></div>
+        </div>
+        <div class="g-label">Create Content</div>
+        <div id="cc-panel"></div>
+      </div>
+      <div class="gs">
+        <div class="g-label">You</div>
+        <div class="pblock at" id="block-you">
+          <div class="pc" id="g-you-color">⬜ White</div>
+          <div class="pn" id="g-you-name">—</div>
+          <div class="pr" id="g-you-rating">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="g-center">
+      <div class="timehud ok" id="timehud">
+        <div class="th-num" id="th-num">5</div>
+        <div class="th-bar"><div class="th-fill" id="th-fill"></div></div>
+      </div>
+      <div class="board-wrap">
+        <div class="board" id="board"></div>
+        <div class="coord-files" id="coord-files"></div>
+        <div class="coord-ranks" id="coord-ranks"></div>
+      </div>
+      <div id="time-vignette"></div>
+    </div>
+
+    <div class="g-right">
+      <div class="move-log">
+        <div class="move-log-head">Move History</div>
+        <div class="move-log-body" id="move-log"></div>
+      </div>
+      <div class="cap-area">
+        <div class="g-label">Captured</div>
+        <div class="cap-row" id="cap-you"></div>
+        <div class="cap-row" id="cap-opp"></div>
+      </div>
+      <button class="resign-btn" id="btn-resign">Resign</button>
+      <div class="ad" style="width:164px;height:150px;margin:10px auto;">AD</div>
+      <div class="ad" style="width:164px;height:80px;margin:0 auto 10px;">AD</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ RESULT MODAL ══ -->
+<div class="modal-bg" id="result-modal">
+  <div class="modal">
+    <div class="modal-knight" id="m-knight">♞</div>
+    <div class="modal-title" id="m-title">DEFEATED</div>
+    <div class="modal-reason" id="m-reason"></div>
+    <div id="no-ads-unlock" class="no-ads-banner" style="display:none">
+      ⚡ You hit 1600! Ads removed forever. Legend status unlocked.
+    </div>
+    <div class="quality-strip" id="quality-strip"></div>
+    <button class="share-btn" id="btn-share">⬡ Share Result</button>
+    <div class="rating-row">
+      <span class="r-old" id="m-r-old">—</span>
+      <span class="r-arrow">→</span>
+      <span class="r-new" id="m-r-new">—</span>
+      <span class="r-delta" id="m-r-delta"></span>
+    </div>
+    <div class="mgs">
+      <div class="mgs-item"><div class="mgs-val" id="m-moves">0</div><div class="mgs-lbl">Moves</div></div>
+      <div class="mgs-item"><div class="mgs-val" id="m-acc">—</div><div class="mgs-lbl">Accuracy</div></div>
+      <div class="mgs-item"><div class="mgs-val" id="m-time">—</div><div class="mgs-lbl">Avg Time</div></div>
+    </div>
+    <button class="btn-ghost" id="btn-retry-blunder" style="display:none;width:100%;margin-bottom:10px">↻ Retry the blunder</button>
+    <div class="modal-btns">
+      <button class="btn-ember" id="btn-rematch" data-action="rematch">PLAY AGAIN</button>
+      <button class="btn-ghost" id="btn-new-opp">NEW OPPONENT</button>
+      <button class="btn-ghost" id="btn-to-lobby">LOBBY</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PROFILE ══ -->
+<div id="s-profile" class="screen">
+  <div class="nav">
+    <div class="nav-brand">
+      <div class="nav-knight">♞</div>
+      <div class="nav-wordmark"><span class="ember">SUDDEN</span><span class="death">DEATH</span></div>
+    </div>
+    <div class="nav-right"><div class="ad" style="width:160px;height:36px;">AD</div></div>
+  </div>
+  <div class="prof-body">
+    <button class="back-btn" id="btn-back-lobby">← Back</button>
+    <button class="back-btn" id="btn-logout" style="margin-left:8px;color:#E11D2E;border-color:rgba(225,29,46,0.4)">Log Out</button>
+    <div class="prof-header">
+      <div class="prof-avatar" id="prof-avatar">?</div>
+      <div>
+        <div class="prof-name" id="prof-name">—</div>
+        <div class="prof-rating-big" id="prof-rating">1200</div>
+        <div class="prof-rating-lbl">Elo Rating · Peak: <span id="prof-peak">1200</span></div>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="sg-cell"><div class="sg-val" id="ps-played">0</div><div class="sg-lbl">Played</div></div>
+      <div class="sg-cell"><div class="sg-val ember" id="ps-wins">0</div><div class="sg-lbl">Wins</div></div>
+      <div class="sg-cell"><div class="sg-val crimson" id="ps-losses">0</div><div class="sg-lbl">Losses</div></div>
+      <div class="sg-cell"><div class="sg-val" id="ps-winpct">—</div><div class="sg-lbl">Win %</div></div>
+    </div>
+    <div class="ads-status" id="ads-status"></div>
+    <div class="rating-chart-box">
+      <div class="chart-title">Rating History</div>
+      <div class="chart-area" id="chart-area"></div>
+    </div>
+    <div class="rating-chart-box" id="games-box">
+      <div class="chart-title">Recent Games</div>
+      <div class="games-list" id="games-list" style="display:flex;flex-direction:column;max-height:340px;overflow-y:auto;margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- stockfish loaded as a Web Worker from app.js, not as a script -->
+<script src="/js/chess.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

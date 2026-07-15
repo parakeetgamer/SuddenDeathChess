@@ -9,28 +9,18 @@ const JWT_SECRET = process.env.JWT_SECRET || 'sdc-dev-secret-change-in-prod';
 
 router.post('/register', async (req, res) => {
   const { username, password } = req.body;
-  // SDC-REF: normalize the incoming referral code (installer 1)
-  const ref = (typeof req.body.ref === 'string' ? req.body.ref.trim().toLowerCase() : '').slice(0, 40) || null;
-  const refIp = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.socket.remoteAddress || null;
-  const refUa = (req.headers['user-agent'] || '').toString().slice(0, 300) || null;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
   if (username.length < 3 || username.length > 20) return res.status(400).json({ error: 'Username must be 3-20 characters.' });
   if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: 'Only letters, numbers, and underscores.' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   try {
     const hash = await bcrypt.hash(password, 10);
-    db.run('INSERT INTO users (username, password, referred_by_code) VALUES (?, ?, ?)', [username, hash, ref], function(err) {
+    db.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hash], function(err) {
       if (err) {
         if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Username already taken.' });
         return res.status(500).json({ error: 'Server error.' });
       }
-      const newId = this.lastID;
-      // SDC-REF: log attribution row for payout review (installer 1)
-      if (ref) {
-        db.run('INSERT INTO referrals (user_id, username, code, ip, user_agent) VALUES (?, ?, ?, ?, ?)',
-          [newId, username, ref, refIp, refUa], (e) => { if (e) console.error('[REF] log failed:', e.message); });
-      }
-      db.get('SELECT * FROM users WHERE id = ?', [newId], (err, user) => {
+      db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err, user) => {
         if (err) return res.status(500).json({ error: 'Server error.' });
         const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '30d' });
         res.json({ token, user: safeUser(user) });

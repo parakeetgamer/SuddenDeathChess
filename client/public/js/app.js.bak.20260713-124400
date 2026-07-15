@@ -2680,16 +2680,27 @@ function recLoadPieces() {
   return Promise.all(keys.map(loadOne)).then(() => map);
 }
 
-function recBuildVoiceFx(ac, ratio){    // SDC_VOICE_V6 clean deep voice (no pitch shift)
-  var input=ac.createGain(), output=ac.createGain(); output.gain.value=1.2;
-  var hp=ac.createBiquadFilter();   hp.type='highpass';  hp.frequency.value=70;    hp.Q.value=0.7;
-  var body=ac.createBiquadFilter(); body.type='lowshelf'; body.frequency.value=180; body.gain.value=6;
-  var warm=ac.createBiquadFilter(); warm.type='peaking';  warm.frequency.value=3500; warm.Q.value=1.0; warm.gain.value=-4;
-  var pres=ac.createBiquadFilter(); pres.type='peaking';  pres.frequency.value=2400; pres.Q.value=1.2; pres.gain.value=2.5;
-  var dark=ac.createBiquadFilter(); dark.type='highshelf'; dark.frequency.value=6000; dark.gain.value=-3;
-  input.connect(hp); hp.connect(body); body.connect(warm); warm.connect(pres); pres.connect(dark); dark.connect(output);
-  var all=[input,hp,body,warm,pres,dark,output];
-  return { input:input, output:output, stop:function(){ all.forEach(function(n){try{n.disconnect();}catch(e){}}); } };
+function recBuildVoiceFx(ac, ratio){    // SDC_DISGUISE_V1 villain pitch-down
+  var grain = 0.100, R = ac.sampleRate;
+  function ramp(){ var n=Math.max(1,Math.round(R*grain)), b=ac.createBuffer(1,n,R), d=b.getChannelData(0); for(var i=0;i<n;i++) d[i]=i/n; return b; }
+  function tri(){ var n=Math.max(1,Math.round(R*grain)), b=ac.createBuffer(1,n,R), d=b.getChannelData(0); for(var i=0;i<n;i++){ var x=i/n; d[i]=x<0.5?x*2:(1-x)*2; } return b; }
+  var depth=(1-ratio)*grain;
+  var input=ac.createGain(), output=ac.createGain(); output.gain.value=1.15;
+  var bright=ac.createBiquadFilter(); bright.type='highshelf'; bright.frequency.value=3200; bright.gain.value=2;
+  var soft=ac.createBiquadFilter(); soft.type='peaking'; soft.frequency.value=2800; soft.Q.value=1.0; soft.gain.value=4;   // SDC_VOICE_V5 clarity
+  var d1=ac.createDelay(1), d2=ac.createDelay(1);
+  var m1=ac.createBufferSource(); m1.buffer=ramp(); m1.loop=true;
+  var m2=ac.createBufferSource(); m2.buffer=ramp(); m2.loop=true;
+  var mg1=ac.createGain(); mg1.gain.value=depth; var mg2=ac.createGain(); mg2.gain.value=depth;
+  m1.connect(mg1); mg1.connect(d1.delayTime); m2.connect(mg2); mg2.connect(d2.delayTime);
+  var w1=ac.createBufferSource(); w1.buffer=tri(); w1.loop=true;
+  var w2=ac.createBufferSource(); w2.buffer=tri(); w2.loop=true;
+  var wg1=ac.createGain(); wg1.gain.value=0; var wg2=ac.createGain(); wg2.gain.value=0;
+  w1.connect(wg1.gain); w2.connect(wg2.gain);
+  input.connect(d1); input.connect(d2); d1.connect(wg1); d2.connect(wg2); wg1.connect(bright); wg2.connect(bright); bright.connect(soft); soft.connect(output);
+  var t=ac.currentTime+0.03, half=grain/2; m1.start(t); w1.start(t); m2.start(t+half); w2.start(t+half);
+  var srcs=[m1,m2,w1,w2], all=[m1,m2,w1,w2,mg1,mg2,d1,d2,wg1,wg2,bright,soft,input,output];
+  return { input:input, output:output, stop:function(){ srcs.forEach(function(s){try{s.stop();}catch(e){}}); all.forEach(function(n){try{n.disconnect();}catch(e){}}); } };
 }
 
 function recFaceCenter(bx, by, bw, bh, vw, vh, zoom, jx, jy){   // SDC_FACETRACK_V1
@@ -4419,9 +4430,6 @@ function initAds() {
       '#sdcrec-ov .sr-b{flex:1;border:none;border-radius:7px;padding:9px;font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:14px;cursor:pointer;text-align:center;text-decoration:none;}' +
       '#sdcrec-ov .sr-dl{background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;}' +
       '#sdcrec-ov .sr-del{background:transparent;color:#E11D2E;border:1px solid rgba(225,29,46,.5);flex:none;padding:9px 12px;}' +
-      '#sdcrec-ov .sr-share{background:#191D24;color:#F5F1EA;border:1px solid #2A2F37;}' +
-      '#sdcrec-ov .sr-auto{background:rgba(255,122,26,.14);color:#FF7A1A;border:1px solid rgba(255,122,26,.5);}' +
-      '#sdcrec-ov .sr-auto:disabled{opacity:.65;cursor:default;}' +
       '#sdcrec-ov .sr-empty{max-width:600px;margin:60px auto;text-align:center;color:#8B92A0;font-size:15px;line-height:1.6;}' +
       '#rec-hud{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:3500;display:none;align-items:center;gap:12px;background:rgba(20,12,12,.92);border:1px solid rgba(225,29,46,.6);border-radius:999px;padding:8px 10px 8px 16px;box-shadow:0 10px 30px rgba(0,0,0,.5);}' +
       '#rec-hud.on{display:flex;}' +
@@ -4455,21 +4463,10 @@ function initAds() {
           '<video src="' + url + '" controls playsinline preload="metadata"></video>' +
           '<div class="sr-meta">' + fmtWhen(c.ts) + (c.size ? ' \u00B7 ' + fmtSize(c.size) : '') + '</div>' +
           '<div class="sr-row"><a class="sr-b sr-dl" href="' + url + '" download="' + fname(c) + '">\u2B07 Download</a>' +
-          '<button class="sr-b sr-share" data-id="' + c.id + '">\u2197 Share</button>' +
-          '<button class="sr-b sr-del" data-id="' + c.id + '">Delete</button></div>' +
-          '<div class="sr-row"><button class="sr-b sr-auto" data-id="' + c.id + '">\u2702 Auto Clip \u00B7 cut silence</button></div>';
+          '<button class="sr-b sr-del" data-id="' + c.id + '">Delete</button></div>';
         grid.appendChild(card);
         card.querySelector('.sr-del').onclick = function () {
           delClip(c.id).then(function () { try { URL.revokeObjectURL(url); } catch (e) {} card.remove(); if (!grid.children.length) closeGallery(); });
-        };
-        var _sh = card.querySelector('.sr-share'); if (_sh) _sh.onclick = function () { if (window.SDCEDIT) SDCEDIT.share(c.blob, c.mime, fname(c)); };
-        var _au = card.querySelector('.sr-auto'); if (_au) _au.onclick = function () {
-          if (!window.SDCEDIT) { try { toast('Auto Clip unavailable.'); } catch (e) {} return; }
-          _au.disabled = true; var _lbl = _au.textContent; _au.textContent = 'Analyzing\u2026';
-          SDCEDIT.autoClip(c.blob, c.mime, c.fmt, function (p) { _au.textContent = 'Processing ' + Math.round(p * 100) + '%'; })
-            .then(function (nb) { var ex = (nb.type.indexOf('mp4') >= 0) ? 'mp4' : 'webm'; return saveClip(nb, ex, c.fmt); })
-            .then(function () { _au.textContent = '\u2713 Saved new clip'; setTimeout(openGallery, 600); })
-            .catch(function (e) { _au.disabled = false; _au.textContent = _lbl; try { toast('Auto Clip: ' + ((e && e.message) || 'not supported on this browser')); } catch (_) {} });
         };
       });
     });
@@ -4651,147 +4648,4 @@ function initAds() {
   window.SDCDOCK = { build: build };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
   else setTimeout(build, 0);
-})();
-
-
-/* ========================================================================
-   SDCEDIT (SDC_AUTOCLIP_V1) — Auto Clip (cut silence) + Share.
-   Dependency-free: WebAudio to find talking segments, canvas+MediaRecorder
-   to re-render only those segments into a new clip.
-   ======================================================================== */
-(function () {
-  'use strict';
-  if (window.SDCEDIT) return;
-  function tmsg(m) { try { toast(m); } catch (e) {} }
-
-  function share(blob, mime, name) {
-    try {
-      var file = new File([blob], name || ('sudden-death-' + Date.now() + '.mp4'), { type: mime || blob.type || 'video/mp4' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: 'Sudden Death Chess', text: 'My Sudden Death Chess clip' }).catch(function () {});
-      } else {
-        tmsg('This device can\u2019t share the video directly \u2014 use Download, then upload in your app.');
-      }
-    } catch (e) { tmsg('Share failed.'); }
-  }
-
-  function detectSegments(buf) {
-    var sr = buf.sampleRate;
-    var ch = buf.numberOfChannels ? buf.getChannelData(0) : new Float32Array(0);
-    var win = Math.max(1, Math.round(sr * 0.03));         // 30ms windows
-    var n = Math.floor(ch.length / win);
-    var dur = buf.duration || (ch.length / sr);
-    if (n < 2) return { segs: [], dur: dur };
-    var rms = new Float32Array(n), peak = 0, i, j;
-    for (i = 0; i < n; i++) { var s = 0, off = i * win; for (j = 0; j < win; j++) { var v = ch[off + j]; s += v * v; } var r = Math.sqrt(s / win); rms[i] = r; if (r > peak) peak = r; }
-    var thresh = Math.max(0.006, peak * 0.12);            // relative gate w/ noise floor
-    var pad = Math.round(0.12 / 0.03);                    // keep 120ms around speech
-    var minGap = Math.round(0.30 / 0.03);                 // gaps < 300ms are not cut
-    var segs = [], i2 = 0;
-    while (i2 < n) {
-      if (rms[i2] < thresh) { i2++; continue; }
-      var st = i2; while (i2 < n && rms[i2] >= thresh) i2++;
-      segs.push([Math.max(0, st - pad), Math.min(n, i2 + pad)]);
-    }
-    var merged = [];
-    for (var k = 0; k < segs.length; k++) {
-      if (merged.length && segs[k][0] - merged[merged.length - 1][1] <= minGap) merged[merged.length - 1][1] = segs[k][1];
-      else merged.push(segs[k].slice());
-    }
-    var out = merged.map(function (a) { return [a[0] * win / sr, a[1] * win / sr]; });
-    return { segs: out, dur: dur };
-  }
-
-  function decodeAudio(blob) {
-    return blob.arrayBuffer().then(function (ab) {
-      var AC = window.AudioContext || window.webkitAudioContext;
-      var ac = new AC();
-      return new Promise(function (res, rej) {
-        ac.decodeAudioData(ab.slice(0), function (b) { res({ buf: b, ac: ac }); }, function () { try { ac.close(); } catch (e) {} rej(new Error('could not read this clip\u2019s audio')); });
-      });
-    });
-  }
-
-  function pickMime(pref) {
-    var c = [pref, 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-    for (var i = 0; i < c.length; i++) { try { if (c[i] && MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
-    return '';
-  }
-
-  function rerender(blob, mime, segs, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var url = URL.createObjectURL(blob);
-      var v = document.createElement('video');
-      v.src = url; v.playsInline = true; v.preload = 'auto';
-      v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1;';
-      document.body.appendChild(v);
-      var AC = window.AudioContext || window.webkitAudioContext;
-      var ac = new AC();
-      var cleaned = false;
-      function cleanup() { if (cleaned) return; cleaned = true; try { v.pause(); } catch (e) {} try { v.remove(); } catch (e) {} try { URL.revokeObjectURL(url); } catch (e) {} try { ac.close(); } catch (e) {} }
-      var total = 0; segs.forEach(function (s) { total += (s[1] - s[0]); });
-      if (total <= 0) { cleanup(); reject(new Error('nothing to keep')); return; }
-      var done = 0, drawing = true, si = 0, mr = null;
-
-      v.onerror = function () { cleanup(); reject(new Error('could not load clip')); };
-      v.onloadedmetadata = function () {
-        var canvas = document.createElement('canvas');
-        canvas.width = v.videoWidth || 540; canvas.height = v.videoHeight || 960;
-        var ctx = canvas.getContext('2d');
-        var cStream = canvas.captureStream(30);
-        try {
-          var srcNode = ac.createMediaElementSource(v);
-          var dest = ac.createMediaStreamDestination();
-          srcNode.connect(dest);   // capture audio only; not routed to speakers
-          dest.stream.getAudioTracks().forEach(function (t) { cStream.addTrack(t); });
-        } catch (e) {}
-        var mrMime = pickMime(mime);
-        var chunks = [];
-        try { mr = mrMime ? new MediaRecorder(cStream, { mimeType: mrMime, videoBitsPerSecond: 4000000 }) : new MediaRecorder(cStream); }
-        catch (e) { cleanup(); reject(new Error('recording not supported')); return; }
-        mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
-        mr.onstop = function () { var out = new Blob(chunks, { type: mr.mimeType || mrMime || 'video/webm' }); cleanup(); resolve(out); };
-
-        function draw() { if (!drawing) return; try { ctx.drawImage(v, 0, 0, canvas.width, canvas.height); } catch (e) {} requestAnimationFrame(draw); }
-        function nextSeg() {
-          if (si >= segs.length) { drawing = false; try { if (mr.state !== 'inactive') mr.stop(); } catch (e) {} return; }
-          var seg = segs[si];
-          try { if (mr.state === 'recording') mr.pause(); } catch (e) {}
-          var onSeeked = function () {
-            v.removeEventListener('seeked', onSeeked);
-            try { if (mr.state === 'paused') mr.resume(); } catch (e) {}
-            v.play().then(watch).catch(function () { watch(); });
-          };
-          v.addEventListener('seeked', onSeeked);
-          try { v.currentTime = seg[0]; } catch (e) { onSeeked(); }
-        }
-        function watch() {
-          var seg = segs[si];
-          function tick() {
-            if (v.currentTime >= seg[1] - 0.01 || v.ended) {
-              done += Math.max(0, Math.min(seg[1], v.currentTime) - seg[0]);
-              if (onProgress) try { onProgress(Math.min(0.99, done / total)); } catch (e) {}
-              si++; nextSeg();
-            } else requestAnimationFrame(tick);
-          }
-          requestAnimationFrame(tick);
-        }
-        try { if (ac.state === 'suspended') ac.resume(); mr.start(500); draw(); nextSeg(); }
-        catch (e) { cleanup(); reject(e); }
-      };
-    });
-  }
-
-  function autoClip(blob, mime, fmt, onProgress) {
-    return decodeAudio(blob).then(function (o) {
-      var d = detectSegments(o.buf);
-      try { o.ac.close(); } catch (e) {}
-      if (!d.segs.length) throw new Error('no talking detected to keep');
-      var kept = 0; d.segs.forEach(function (s) { kept += (s[1] - s[0]); });
-      if (d.dur && kept >= d.dur * 0.97) throw new Error('no real silence to cut');
-      return rerender(blob, mime, d.segs, onProgress);
-    });
-  }
-
-  window.SDCEDIT = { autoClip: autoClip, share: share };
 })();

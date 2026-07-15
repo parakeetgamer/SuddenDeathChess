@@ -2680,105 +2680,6 @@ function recLoadPieces() {
   return Promise.all(keys.map(loadOne)).then(() => map);
 }
 
-function recBuildVoiceFx(ac, ratio){    // SDC_VOICE_V6 clean deep voice (no pitch shift)
-  var input=ac.createGain(), output=ac.createGain(); output.gain.value=1.2;
-  var hp=ac.createBiquadFilter();   hp.type='highpass';  hp.frequency.value=70;    hp.Q.value=0.7;
-  var body=ac.createBiquadFilter(); body.type='lowshelf'; body.frequency.value=180; body.gain.value=6;
-  var warm=ac.createBiquadFilter(); warm.type='peaking';  warm.frequency.value=3500; warm.Q.value=1.0; warm.gain.value=-4;
-  var pres=ac.createBiquadFilter(); pres.type='peaking';  pres.frequency.value=2400; pres.Q.value=1.2; pres.gain.value=2.5;
-  var dark=ac.createBiquadFilter(); dark.type='highshelf'; dark.frequency.value=6000; dark.gain.value=-3;
-  input.connect(hp); hp.connect(body); body.connect(warm); warm.connect(pres); pres.connect(dark); dark.connect(output);
-  var all=[input,hp,body,warm,pres,dark,output];
-  return { input:input, output:output, stop:function(){ all.forEach(function(n){try{n.disconnect();}catch(e){}}); } };
-}
-
-function recFaceCenter(bx, by, bw, bh, vw, vh, zoom, jx, jy){   // SDC_FACETRACK_V1
-  var fb = REC._face;
-  if (!fb || !vw || !vh) return null;
-  var scale = Math.max(bw/vw, bh/vh) * (zoom || 1);
-  var dw = vw*scale, dh = vh*scale;
-  var ox = bx + (bw-dw)/2 + (jx||0), oy = by + (bh-dh)/2 + (jy||0);
-  var cx = ox + (fb.x + fb.w/2)*scale;
-  var cy = oy + (fb.y + fb.h*0.42)*scale;
-  var r  = fb.w*scale*0.6;
-  return { cx:cx, cy:cy, r:Math.max(24, r) };
-}
-
-async function recStartFaceTrack(){
-  REC._face = null; REC._faceMiss = 0; REC._faceStop = false;
-  if (!REC.useDisguise || !REC.useCam || !REC.video) return;
-  var mob = false;
-  try { mob = (window.matchMedia && matchMedia('(max-width: 820px)').matches) || /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent||''); } catch(e){}
-  if (mob && REC.faceTrackMobile !== true) return;   // mobile keeps fixed-anchor mask
-  try {
-    if (!REC._faceDet) {
-      var mod = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14');
-      var vision = await mod.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-      REC._faceDet = await mod.FaceDetector.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite' },
-        runningMode: 'VIDEO', minDetectionConfidence: 0.4
-      });
-    }
-    var det = REC._faceDet, lastCt = -1;
-    var loop = function(){
-      if (REC._faceStop || !REC.active || !REC.useDisguise) return;
-      var v = REC.video;
-      if (v && v.videoWidth && v.currentTime !== lastCt) {
-        lastCt = v.currentTime;
-        try {
-          var res = det.detectForVideo(v, performance.now());
-          if (res && res.detections && res.detections.length) {
-            var bb = res.detections[0].boundingBox;
-            var raw = { x:bb.originX, y:bb.originY, w:bb.width, h:bb.height };
-            if (!REC._face) REC._face = raw;
-            else { var a = 0.35; REC._face = {
-              x: REC._face.x + (raw.x-REC._face.x)*a, y: REC._face.y + (raw.y-REC._face.y)*a,
-              w: REC._face.w + (raw.w-REC._face.w)*a, h: REC._face.h + (raw.h-REC._face.h)*a }; }
-            REC._faceMiss = 0;
-          } else { REC._faceMiss = (REC._faceMiss||0) + 1; if (REC._faceMiss > 12) REC._face = null; }
-        } catch(e){}
-      }
-      REC._faceRaf = setTimeout(function(){ requestAnimationFrame(loop); }, 66);
-    };
-    loop();
-  } catch(e){ /* CDN/model unavailable -> fixed-anchor mask still works */ }
-}
-
-function recStopFaceTrack(){
-  REC._faceStop = true;
-  if (REC._faceRaf) { clearTimeout(REC._faceRaf); REC._faceRaf = null; }
-  REC._face = null;
-}
-
-function recDrawMask(ctx, cx, cy, r, phase, now){    // SDC_DISGUISE_V1 animated mask
-  var glow = phase==='death' ? '#E11D2E' : phase==='safe' ? '#34D399' : phase==='judging' ? '#F5C518' : '#FF7A1A';
-  ctx.save();
-  ctx.translate(cx, cy + Math.sin(now/520)*3);
-  ctx.rotate(Math.sin(now/900)*0.05);
-  var br = 1 + 0.03*Math.sin(now/600); ctx.scale(br, br);
-  var aura = ctx.createRadialGradient(0,0,r*0.2, 0,0,r*1.5);
-  aura.addColorStop(0,'rgba(157,43,229,0.30)'); aura.addColorStop(1,'rgba(157,43,229,0)');
-  ctx.fillStyle=aura; ctx.beginPath(); ctx.arc(0,0,r*1.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#15181E'; ctx.strokeStyle='#FF7A1A'; ctx.lineWidth=Math.max(2,r*0.06);
-  [-1,1].forEach(function(s){ ctx.beginPath(); ctx.moveTo(s*r*0.5,-r*0.85); ctx.quadraticCurveTo(s*r*1.05,-r*1.5,s*r*0.32,-r*1.1); ctx.closePath(); ctx.fill(); ctx.stroke(); });
-  ctx.beginPath();
-  ctx.moveTo(0,-r*1.12);
-  ctx.quadraticCurveTo(r*0.95,-r*0.92, r*0.9, r*0.15);
-  ctx.quadraticCurveTo(r*0.72, r*1.05, 0, r*1.2);
-  ctx.quadraticCurveTo(-r*0.72, r*1.05, -r*0.9, r*0.15);
-  ctx.quadraticCurveTo(-r*0.95,-r*0.92, 0,-r*1.12);
-  ctx.closePath(); ctx.fillStyle='#15181E'; ctx.fill(); ctx.stroke();
-  var blink = (Math.sin(now/1700)>0.985) ? 0.12 : 1;
-  ctx.shadowColor=glow; ctx.shadowBlur=r*0.5; ctx.fillStyle=glow;
-  [-1,1].forEach(function(s){ ctx.beginPath(); ctx.moveTo(s*r*0.16,-r*0.12); ctx.lineTo(s*r*0.6,-r*0.28); ctx.lineTo(s*r*0.5, r*0.1*blink); ctx.closePath(); ctx.fill(); });
-  ctx.shadowBlur=0;
-  ctx.strokeStyle=glow; ctx.lineWidth=Math.max(2,r*0.05); ctx.beginPath();
-  var gx=-r*0.42, gy=r*0.52, n=6; ctx.moveTo(gx,gy);
-  for(var i=1;i<=n;i++){ ctx.lineTo(gx+(i/n)*r*0.84, gy+((i%2)?r*0.14:-r*0.02)); }
-  ctx.stroke();
-  ctx.restore();
-}
-
 function recDrawFrame() {
   if (REC._fpsGate) { var _fg = (window.performance && performance.now) ? performance.now() : Date.now(); if (_fg - (REC._lastFrame || 0) < REC._fpsGate) { if (REC.active) REC.raf = requestAnimationFrame(REC.drawFn || recDrawFrame); return; } REC._lastFrame = _fg; }
   const ctx = REC.ctx, W = 540, H = 960, now = Date.now();
@@ -2838,7 +2739,6 @@ function recDrawFrame() {
     ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,camH); ctx.clip();
     ctx.drawImage(v, (W-dw)/2 + camJx, (camH-dh)/2 + camJy, dw, dh); ctx.restore();
   } else { ctx.fillStyle = '#191D24'; ctx.fillRect(0,0,W,camH); }
-  if (REC.useDisguise) { var _fc = recFaceCenter(0, 0, W, camH, (REC.video&&REC.video.videoWidth)||0, (REC.video&&REC.video.videoHeight)||0, camZoom, camJx, camJy) || { cx:W/2, cy:camH*0.44, r:camH*0.34 }; recDrawMask(ctx, _fc.cx, _fc.cy, _fc.r, phase, now); }
 
   if ((REC._streak||0) > 0) {
     const sp = REC._streakPop ? Math.max(0, 1 - (now - REC._streakPop)/350) : 0;
@@ -3017,7 +2917,6 @@ function recDrawFrameLandscape() {
     ctx.fillStyle = '#F5F1EA'; ctx.fillText('CHESS', camX + camW / 2, camY + camH / 2 + 34);
     ctx.textAlign = 'left';
   }
-  if (REC.useDisguise) { var _fc = recFaceCenter(camX, camY, camW, camH, (REC.video&&REC.video.videoWidth)||0, (REC.video&&REC.video.videoHeight)||0, camZoom, camJx, camJy) || { cx:camX+camW/2, cy:camY+camH*0.44, r:camH*0.34 }; recDrawMask(ctx, _fc.cx, _fc.cy, _fc.r, phase, now); }
 
   ctx.textAlign = 'left'; ctx.font = '700 26px Antonio, sans-serif';
   let lx = camX; const ly = camY + camH + 44;
@@ -3183,7 +3082,6 @@ async function startRecording(btn) {
   REC.canvas.style.cssText = 'position:fixed;bottom:88px;left:14px;width:' + pw + 'px;height:' + ph + 'px;z-index:1450;border:2px solid #FF7A1A;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.55);background:#000';
   document.body.appendChild(REC.canvas);
   REC.active = true;
-  recStartFaceTrack();
   REC.drawFn();
 
   try { REC.stream = REC.canvas.captureStream(REC._fps || 30); }
@@ -3201,9 +3099,7 @@ async function startRecording(btn) {
       const makeup = ac.createGain(); makeup.gain.value = 1.5;
       const gate = ac.createGain(); gate.gain.value = 0;
       const analyser = ac.createAnalyser(); analyser.fftSize = 512;
-      aSrc.connect(comp); comp.connect(analyser); comp.connect(makeup);
-      if (REC.useDisguise && typeof recBuildVoiceFx === 'function') { const _vfx = recBuildVoiceFx(ac, 0.93); makeup.connect(_vfx.input); _vfx.output.connect(gate); REC._voiceFx = _vfx; } else { makeup.connect(gate); }
-      gate.connect(recDest);
+      aSrc.connect(comp); comp.connect(analyser); comp.connect(makeup); makeup.connect(gate); gate.connect(recDest);
       REC._audioNodes = { aSrc, comp, makeup, gate, analyser, recDest, ac };
       REC._gateOpen = false; recGateTick();
     } else {
@@ -3266,7 +3162,6 @@ function stopRecordingCleanup() {
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
   if (REC.video && REC.video.parentNode) REC.video.remove();
   recStopKeepAlive();
-  recStopFaceTrack();
   recTeardownAudio();
 }
 
@@ -3282,7 +3177,6 @@ function finishRecording() {
   if (REC.userStream) REC.userStream.getTracks().forEach(t => t.stop());
   if (REC.video && REC.video.parentNode) REC.video.remove();
   recStopKeepAlive();
-  recStopFaceTrack();
   recTeardownAudio();
   const url = URL.createObjectURL(blob);
   const fname = 'sudden-death-' + Date.now() + '.' + REC.ext;
@@ -3425,7 +3319,6 @@ function recTeardownAudio() {
   if (!n) return;
   try { if (sfxBusNode && n.recDest) sfxBusNode.disconnect(n.recDest); } catch (e) {}
   ['aSrc','comp','makeup','gate','analyser'].forEach(k => { try { if (n[k]) n[k].disconnect(); } catch (e) {} });
-  if (REC._voiceFx) { try { REC._voiceFx.stop(); } catch (e) {} REC._voiceFx = null; }
 }
 
 function ccInjectStyle() {
@@ -3456,7 +3349,6 @@ function ensureContentPanel(rebuild) {
   if (REC.format === undefined) REC.format = 'reels';
   if (REC.useCam === undefined) REC.useCam = true;
   if (REC.useMic === undefined) REC.useMic = true;
-  if (REC.useDisguise === undefined) REC.useDisguise = false;
   panel.innerHTML =
     '<div class="cc-seg" id="cc-fmt">' +
       '<button data-fmt="reels"' + (REC.format === 'reels' ? ' class="on"' : '') + '>Reels 9:16</button>' +
@@ -3464,7 +3356,6 @@ function ensureContentPanel(rebuild) {
     '</div>' +
     '<div class="cc-tog"><span>Camera</span><button class="cc-sw' + (REC.useCam ? ' on' : '') + '" id="cc-cam"></button></div>' +
     '<div class="cc-tog"><span>Mic</span><button class="cc-sw' + (REC.useMic ? ' on' : '') + '" id="cc-mic"></button></div>' +
-    '<div class="cc-tog"><span>Disguise</span><button class="cc-sw' + (REC.useDisguise ? ' on' : '') + '" id="cc-disg"></button></div>' +
     '<button class="cc-btn cc-btn-primary" id="cc-go">\u25CF Create Content</button>';
   panel.querySelectorAll('#cc-fmt button').forEach(function (b) {
     b.onclick = function () {
@@ -3475,7 +3366,6 @@ function ensureContentPanel(rebuild) {
   });
   const cam = panel.querySelector('#cc-cam'); cam.onclick = function () { REC.useCam = !REC.useCam; cam.classList.toggle('on', REC.useCam); };
   const mic = panel.querySelector('#cc-mic'); mic.onclick = function () { REC.useMic = !REC.useMic; mic.classList.toggle('on', REC.useMic); };
-  const dsg = panel.querySelector('#cc-disg'); if (dsg) dsg.onclick = function () { REC.useDisguise = !REC.useDisguise; dsg.classList.toggle('on', REC.useDisguise); };
   const go = panel.querySelector('#cc-go');
   go.onclick = function () { if (REC.active) stopRecording(go); else startRecording(go); };
 }
@@ -4419,9 +4309,6 @@ function initAds() {
       '#sdcrec-ov .sr-b{flex:1;border:none;border-radius:7px;padding:9px;font-family:Antonio,sans-serif;font-weight:700;letter-spacing:1px;font-size:14px;cursor:pointer;text-align:center;text-decoration:none;}' +
       '#sdcrec-ov .sr-dl{background:linear-gradient(135deg,#FF7A1A,#F5C518);color:#0E1116;}' +
       '#sdcrec-ov .sr-del{background:transparent;color:#E11D2E;border:1px solid rgba(225,29,46,.5);flex:none;padding:9px 12px;}' +
-      '#sdcrec-ov .sr-share{background:#191D24;color:#F5F1EA;border:1px solid #2A2F37;}' +
-      '#sdcrec-ov .sr-auto{background:rgba(255,122,26,.14);color:#FF7A1A;border:1px solid rgba(255,122,26,.5);}' +
-      '#sdcrec-ov .sr-auto:disabled{opacity:.65;cursor:default;}' +
       '#sdcrec-ov .sr-empty{max-width:600px;margin:60px auto;text-align:center;color:#8B92A0;font-size:15px;line-height:1.6;}' +
       '#rec-hud{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:3500;display:none;align-items:center;gap:12px;background:rgba(20,12,12,.92);border:1px solid rgba(225,29,46,.6);border-radius:999px;padding:8px 10px 8px 16px;box-shadow:0 10px 30px rgba(0,0,0,.5);}' +
       '#rec-hud.on{display:flex;}' +
@@ -4455,21 +4342,10 @@ function initAds() {
           '<video src="' + url + '" controls playsinline preload="metadata"></video>' +
           '<div class="sr-meta">' + fmtWhen(c.ts) + (c.size ? ' \u00B7 ' + fmtSize(c.size) : '') + '</div>' +
           '<div class="sr-row"><a class="sr-b sr-dl" href="' + url + '" download="' + fname(c) + '">\u2B07 Download</a>' +
-          '<button class="sr-b sr-share" data-id="' + c.id + '">\u2197 Share</button>' +
-          '<button class="sr-b sr-del" data-id="' + c.id + '">Delete</button></div>' +
-          '<div class="sr-row"><button class="sr-b sr-auto" data-id="' + c.id + '">\u2702 Auto Clip \u00B7 cut silence</button></div>';
+          '<button class="sr-b sr-del" data-id="' + c.id + '">Delete</button></div>';
         grid.appendChild(card);
         card.querySelector('.sr-del').onclick = function () {
           delClip(c.id).then(function () { try { URL.revokeObjectURL(url); } catch (e) {} card.remove(); if (!grid.children.length) closeGallery(); });
-        };
-        var _sh = card.querySelector('.sr-share'); if (_sh) _sh.onclick = function () { if (window.SDCEDIT) SDCEDIT.share(c.blob, c.mime, fname(c)); };
-        var _au = card.querySelector('.sr-auto'); if (_au) _au.onclick = function () {
-          if (!window.SDCEDIT) { try { toast('Auto Clip unavailable.'); } catch (e) {} return; }
-          _au.disabled = true; var _lbl = _au.textContent; _au.textContent = 'Analyzing\u2026';
-          SDCEDIT.autoClip(c.blob, c.mime, c.fmt, function (p) { _au.textContent = 'Processing ' + Math.round(p * 100) + '%'; })
-            .then(function (nb) { var ex = (nb.type.indexOf('mp4') >= 0) ? 'mp4' : 'webm'; return saveClip(nb, ex, c.fmt); })
-            .then(function () { _au.textContent = '\u2713 Saved new clip'; setTimeout(openGallery, 600); })
-            .catch(function (e) { _au.disabled = false; _au.textContent = _lbl; try { toast('Auto Clip: ' + ((e && e.message) || 'not supported on this browser')); } catch (_) {} });
         };
       });
     });
@@ -4593,8 +4469,7 @@ function initAds() {
     cfg.innerHTML =
       '<div class="seg" id="dk-fmt"><button data-fmt="reels">Reels 9:16</button><button data-fmt="desktop">Desktop</button></div>' +
       '<div class="row"><span class="lbl">Camera</span><button class="sw" id="dk-cam"></button></div>' +
-      '<div class="row"><span class="lbl">Mic</span><button class="sw" id="dk-mic"></button></div>' +
-      '<div class="row"><span class="lbl">Disguise</span><button class="sw" id="dk-disg"></button></div>';
+      '<div class="row"><span class="lbl">Mic</span><button class="sw" id="dk-mic"></button></div>';
     document.body.appendChild(cfg);
 
     recBtn = document.getElementById('dk-rec');
@@ -4618,7 +4493,6 @@ function initAds() {
     });
     document.getElementById('dk-cam').onclick = function () { if (typeof REC !== 'undefined') { REC.useCam = (REC.useCam === false); } syncCfg(); };
     document.getElementById('dk-mic').onclick = function () { if (typeof REC !== 'undefined') { REC.useMic = (REC.useMic === false); } syncCfg(); };
-    { var _dg = document.getElementById('dk-disg'); if (_dg) _dg.onclick = function () { if (typeof REC !== 'undefined') { REC.useDisguise = (REC.useDisguise === false); } syncCfg(); }; }
 
     syncCfg(); tick(); setInterval(tick, 500);
   }
@@ -4629,7 +4503,6 @@ function initAds() {
     cfg.querySelectorAll('#dk-fmt button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-fmt') === fmt); });
     var cam = document.getElementById('dk-cam'); if (cam) cam.classList.toggle('on', REC.useCam !== false);
     var mic = document.getElementById('dk-mic'); if (mic) mic.classList.toggle('on', REC.useMic !== false);
-    var dsg = document.getElementById('dk-disg'); if (dsg) dsg.classList.toggle('on', REC.useDisguise === true);
   }
 
   function tick() {
@@ -4651,147 +4524,4 @@ function initAds() {
   window.SDCDOCK = { build: build };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
   else setTimeout(build, 0);
-})();
-
-
-/* ========================================================================
-   SDCEDIT (SDC_AUTOCLIP_V1) — Auto Clip (cut silence) + Share.
-   Dependency-free: WebAudio to find talking segments, canvas+MediaRecorder
-   to re-render only those segments into a new clip.
-   ======================================================================== */
-(function () {
-  'use strict';
-  if (window.SDCEDIT) return;
-  function tmsg(m) { try { toast(m); } catch (e) {} }
-
-  function share(blob, mime, name) {
-    try {
-      var file = new File([blob], name || ('sudden-death-' + Date.now() + '.mp4'), { type: mime || blob.type || 'video/mp4' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: 'Sudden Death Chess', text: 'My Sudden Death Chess clip' }).catch(function () {});
-      } else {
-        tmsg('This device can\u2019t share the video directly \u2014 use Download, then upload in your app.');
-      }
-    } catch (e) { tmsg('Share failed.'); }
-  }
-
-  function detectSegments(buf) {
-    var sr = buf.sampleRate;
-    var ch = buf.numberOfChannels ? buf.getChannelData(0) : new Float32Array(0);
-    var win = Math.max(1, Math.round(sr * 0.03));         // 30ms windows
-    var n = Math.floor(ch.length / win);
-    var dur = buf.duration || (ch.length / sr);
-    if (n < 2) return { segs: [], dur: dur };
-    var rms = new Float32Array(n), peak = 0, i, j;
-    for (i = 0; i < n; i++) { var s = 0, off = i * win; for (j = 0; j < win; j++) { var v = ch[off + j]; s += v * v; } var r = Math.sqrt(s / win); rms[i] = r; if (r > peak) peak = r; }
-    var thresh = Math.max(0.006, peak * 0.12);            // relative gate w/ noise floor
-    var pad = Math.round(0.12 / 0.03);                    // keep 120ms around speech
-    var minGap = Math.round(0.30 / 0.03);                 // gaps < 300ms are not cut
-    var segs = [], i2 = 0;
-    while (i2 < n) {
-      if (rms[i2] < thresh) { i2++; continue; }
-      var st = i2; while (i2 < n && rms[i2] >= thresh) i2++;
-      segs.push([Math.max(0, st - pad), Math.min(n, i2 + pad)]);
-    }
-    var merged = [];
-    for (var k = 0; k < segs.length; k++) {
-      if (merged.length && segs[k][0] - merged[merged.length - 1][1] <= minGap) merged[merged.length - 1][1] = segs[k][1];
-      else merged.push(segs[k].slice());
-    }
-    var out = merged.map(function (a) { return [a[0] * win / sr, a[1] * win / sr]; });
-    return { segs: out, dur: dur };
-  }
-
-  function decodeAudio(blob) {
-    return blob.arrayBuffer().then(function (ab) {
-      var AC = window.AudioContext || window.webkitAudioContext;
-      var ac = new AC();
-      return new Promise(function (res, rej) {
-        ac.decodeAudioData(ab.slice(0), function (b) { res({ buf: b, ac: ac }); }, function () { try { ac.close(); } catch (e) {} rej(new Error('could not read this clip\u2019s audio')); });
-      });
-    });
-  }
-
-  function pickMime(pref) {
-    var c = [pref, 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-    for (var i = 0; i < c.length; i++) { try { if (c[i] && MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
-    return '';
-  }
-
-  function rerender(blob, mime, segs, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var url = URL.createObjectURL(blob);
-      var v = document.createElement('video');
-      v.src = url; v.playsInline = true; v.preload = 'auto';
-      v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1;';
-      document.body.appendChild(v);
-      var AC = window.AudioContext || window.webkitAudioContext;
-      var ac = new AC();
-      var cleaned = false;
-      function cleanup() { if (cleaned) return; cleaned = true; try { v.pause(); } catch (e) {} try { v.remove(); } catch (e) {} try { URL.revokeObjectURL(url); } catch (e) {} try { ac.close(); } catch (e) {} }
-      var total = 0; segs.forEach(function (s) { total += (s[1] - s[0]); });
-      if (total <= 0) { cleanup(); reject(new Error('nothing to keep')); return; }
-      var done = 0, drawing = true, si = 0, mr = null;
-
-      v.onerror = function () { cleanup(); reject(new Error('could not load clip')); };
-      v.onloadedmetadata = function () {
-        var canvas = document.createElement('canvas');
-        canvas.width = v.videoWidth || 540; canvas.height = v.videoHeight || 960;
-        var ctx = canvas.getContext('2d');
-        var cStream = canvas.captureStream(30);
-        try {
-          var srcNode = ac.createMediaElementSource(v);
-          var dest = ac.createMediaStreamDestination();
-          srcNode.connect(dest);   // capture audio only; not routed to speakers
-          dest.stream.getAudioTracks().forEach(function (t) { cStream.addTrack(t); });
-        } catch (e) {}
-        var mrMime = pickMime(mime);
-        var chunks = [];
-        try { mr = mrMime ? new MediaRecorder(cStream, { mimeType: mrMime, videoBitsPerSecond: 4000000 }) : new MediaRecorder(cStream); }
-        catch (e) { cleanup(); reject(new Error('recording not supported')); return; }
-        mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
-        mr.onstop = function () { var out = new Blob(chunks, { type: mr.mimeType || mrMime || 'video/webm' }); cleanup(); resolve(out); };
-
-        function draw() { if (!drawing) return; try { ctx.drawImage(v, 0, 0, canvas.width, canvas.height); } catch (e) {} requestAnimationFrame(draw); }
-        function nextSeg() {
-          if (si >= segs.length) { drawing = false; try { if (mr.state !== 'inactive') mr.stop(); } catch (e) {} return; }
-          var seg = segs[si];
-          try { if (mr.state === 'recording') mr.pause(); } catch (e) {}
-          var onSeeked = function () {
-            v.removeEventListener('seeked', onSeeked);
-            try { if (mr.state === 'paused') mr.resume(); } catch (e) {}
-            v.play().then(watch).catch(function () { watch(); });
-          };
-          v.addEventListener('seeked', onSeeked);
-          try { v.currentTime = seg[0]; } catch (e) { onSeeked(); }
-        }
-        function watch() {
-          var seg = segs[si];
-          function tick() {
-            if (v.currentTime >= seg[1] - 0.01 || v.ended) {
-              done += Math.max(0, Math.min(seg[1], v.currentTime) - seg[0]);
-              if (onProgress) try { onProgress(Math.min(0.99, done / total)); } catch (e) {}
-              si++; nextSeg();
-            } else requestAnimationFrame(tick);
-          }
-          requestAnimationFrame(tick);
-        }
-        try { if (ac.state === 'suspended') ac.resume(); mr.start(500); draw(); nextSeg(); }
-        catch (e) { cleanup(); reject(e); }
-      };
-    });
-  }
-
-  function autoClip(blob, mime, fmt, onProgress) {
-    return decodeAudio(blob).then(function (o) {
-      var d = detectSegments(o.buf);
-      try { o.ac.close(); } catch (e) {}
-      if (!d.segs.length) throw new Error('no talking detected to keep');
-      var kept = 0; d.segs.forEach(function (s) { kept += (s[1] - s[0]); });
-      if (d.dur && kept >= d.dur * 0.97) throw new Error('no real silence to cut');
-      return rerender(blob, mime, d.segs, onProgress);
-    });
-  }
-
-  window.SDCEDIT = { autoClip: autoClip, share: share };
 })();

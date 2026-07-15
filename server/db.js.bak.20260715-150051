@@ -26,23 +26,6 @@ db.serialize(() => {
   db.run('ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0', () => {});
   db.run('ALTER TABLE users ADD COLUMN stripe_customer_id TEXT', () => {});
   db.run('ALTER TABLE users ADD COLUMN premium_until TEXT', () => {});
-  // --- SDC-REF: referral attribution (installer 1) ---
-  db.run('ALTER TABLE users ADD COLUMN email TEXT', () => {});
-  db.run('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0', () => {});
-  db.run('ALTER TABLE users ADD COLUMN verify_token TEXT', () => {});
-  db.run('ALTER TABLE users ADD COLUMN verify_sent_at TEXT', () => {});
-  db.run('ALTER TABLE users ADD COLUMN referred_by_code TEXT', () => {});
-  db.run(`CREATE TABLE IF NOT EXISTS referrals (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER,
-    username   TEXT,
-    code       TEXT    NOT NULL,
-    ip         TEXT,
-    user_agent TEXT,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-  )`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(code)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_referrals_ip   ON referrals(ip)`);
   db.run(`CREATE TABLE IF NOT EXISTS games (
     id            TEXT    PRIMARY KEY,
     white_id      INTEGER,
